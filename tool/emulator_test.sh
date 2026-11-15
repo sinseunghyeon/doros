@@ -83,8 +83,17 @@ SERIAL=""
 A()  { "$ADB" -s "$SERIAL" "$@"; }
 S()  { "$ADB" -s "$SERIAL" shell "$@" 2>/dev/null | tr -d '\r'; }
 
-zone_of() { # 오프셋 → Etc/GMT 존 ID (부호 반대)
+zone_of() { # 오프셋(9, -3, 9:30) → 시스템 존 ID. Etc/GMT 는 부호 반대. 30분 값은 Core.kt Zones.HALF_HOUR 와 같다
   local o=$1
+  case "$o" in
+    -9:30) echo "Pacific/Marquesas"; return ;;
+    3:30) echo "Asia/Tehran"; return ;;
+    4:30) echo "Asia/Kabul"; return ;;
+    5:30) echo "Asia/Kolkata"; return ;;
+    6:30) echo "Asia/Yangon"; return ;;
+    9:30) echo "Australia/Darwin"; return ;;
+    *:*) echo ""; return ;;  # 시스템 시간대 없음 (표시 전용)
+  esac
   if [ "$o" -eq 0 ]; then echo "Etc/GMT"
   elif [ "$o" -gt 0 ]; then echo "Etc/GMT-$o"
   else echo "Etc/GMT+$(( -o ))"; fi
@@ -290,6 +299,27 @@ for API in "${APIS[@]}"; do
   expect "UTC+14 지정"           set 14   14
   expect "+1h (상한 유지)"       plus     14
   expect "다시 적용 (UTC+14)"    reapply  14
+  expect "UTC+9 복귀"            set 9    9
+
+  # 30분 단위: 실제 시간대가 있는 값은 시스템까지 바뀌어야 함
+  expect "+30m → UTC+9:30"       plus30   9:30
+  expect "+30m → UTC+10"         plus30   10
+  expect "-30m → UTC+9:30"       minus30  9:30
+  expect "UTC+5 지정"            set 5    5
+  expect "+30m → UTC+5:30"       plus30   5:30
+  expect "UTC-9 지정"            set -9   -9
+  expect "-30m → UTC-9:30"       minus30  -9:30
+
+  # 30분 단위 중 시스템 시간대가 없는 값(+1:30)은 표시만 하고 시스템은 그대로여야 함
+  run_cmd set 1
+  before=$(S getprop persist.sys.timezone)
+  run_cmd plus30
+  after=$(field sys "$LAST")
+  if [ "$(field offset "$LAST")" = "1:30" ] && [ "$after" = "$before" ] && [ "$before" = "Etc/GMT-1" ]; then
+    PASS=$((PASS + 1)); printf '  %s✓%s UTC+1:30 표시 전용: 시스템 %s 유지\n' "$c_g" "$c_0" "$before"
+  else
+    FAIL=$((FAIL + 1)); printf '  %s✗%s UTC+1:30 처리 이상 (offset=%s, %s → %s)\n' "$c_r" "$c_0" "$(field offset "$LAST")" "$before" "$after"
+  fi
   expect "UTC+9 복귀"            set 9    9
 
   # 표시 전용 모드: 오프셋만 바뀌고 시스템은 그대로여야 함

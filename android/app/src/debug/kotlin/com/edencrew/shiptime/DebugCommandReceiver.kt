@@ -10,10 +10,11 @@ import kotlin.concurrent.thread
  * debug 빌드 전용. 위젯 버튼과 똑같은 경로(ShipTimeController, 8초 예산)로 명령을 실행하고
  * 결과를 logcat 한 줄로 남긴다. tool/emulator_test.sh 가 이 줄을 파싱한다.
  *
- * cmd: plus | minus | set(--ei offset N) | reapply | sync_on | sync_off | state
+ * cmd: plus | minus | plus30 | minus30 | set(--ei offset N 시간, 또는 --ei offset_min N 분)
+ *      | reapply | sync_on | sync_off | state
  *      | pair_start(알림 페어링 시작 — 앱이 포그라운드일 때) | pair_code(--es code NNNNNN: 알림 입력과 같은 경로)
  *      | boot(부팅 재연결 작업 예약)
- * 출력: RESULT id=.. cmd=.. ok=.. offset=.. target=.. sys=.. adb=connected sdk=.. msg=..
+ * 출력: RESULT id=.. cmd=.. ok=.. offset=(9 | 9:30 | -3:30) target=.. sys=.. adb=connected sdk=.. msg=..
  */
 class DebugCommandReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
@@ -25,9 +26,15 @@ class DebugCommandReceiver : BroadcastReceiver() {
             try {
                 val p = Prefs(app)
                 val out: ShipTimeController.Outcome? = when (cmd) {
-                    "plus" -> ShipTimeController.adjust(app, 1, 8000)
-                    "minus" -> ShipTimeController.adjust(app, -1, 8000)
-                    "set" -> ShipTimeController.setOffset(app, intent.getIntExtra("offset", 0), 8000)
+                    "plus" -> ShipTimeController.adjust(app, 60, 8000)
+                    "minus" -> ShipTimeController.adjust(app, -60, 8000)
+                    "plus30" -> ShipTimeController.adjust(app, 30, 8000)
+                    "minus30" -> ShipTimeController.adjust(app, -30, 8000)
+                    "set" -> {
+                        val min = if (intent.hasExtra("offset_min")) intent.getIntExtra("offset_min", 0)
+                        else intent.getIntExtra("offset", 0) * 60
+                        ShipTimeController.setOffset(app, min, 8000)
+                    }
                     "reapply" -> ShipTimeController.reapply(app, 8000)
                     "sync_on" -> { p.sync = true; null }
                     "sync_off" -> { p.sync = false; null }
@@ -43,9 +50,11 @@ class DebugCommandReceiver : BroadcastReceiver() {
                     "boot" -> { AdbReconnectJob.schedule(app); null }
                     else -> null
                 }
+                val o = p.offsetMinutes
                 Log.i(
                     TAG,
-                    "RESULT id=$id cmd=$cmd ok=${out?.ok} offset=${p.offset} target=${Zones.zoneId(p.offset)} " +
+                    "RESULT id=$id cmd=$cmd ok=${out?.ok} offset=${Zones.label(o).removePrefix("UTC").removePrefix("+")} " +
+                        "target=${Zones.zoneId(o)} " +
                         "sys=${SysTz.current()} adb=${AdbPriv.connected} " +
                         "sdk=${android.os.Build.VERSION.SDK_INT} msg=${out?.message}",
                 )

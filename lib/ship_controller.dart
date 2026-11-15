@@ -107,8 +107,10 @@ class ShipController extends ChangeNotifier {
     }
   }
 
-  Future<void> adjust(int d) => run(() => Native.adjust(d));
-  Future<void> setOffset(int o) => run(() => Native.setOffset(o));
+  Future<void> adjust(int deltaMinutes) => run(() => Native.adjust(deltaMinutes));
+  Future<void> setOffset(int offsetMinutes) => run(() => Native.setOffset(offsetMinutes));
+  Future<void> setDday(String title, String? date) => run(() => Native.setDday(title, date));
+  Future<void> setWidgetOpacity(int v) => run(() => Native.setWidgetOpacity(v));
   Future<void> setSync(bool v) => run(() => Native.setSync(v));
   Future<void> setUseRoot(bool v) => run(() => Native.setUseRoot(v));
   Future<void> setAutoAdb(bool v) => run(() => Native.setAutoAdb(v));

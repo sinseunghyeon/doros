@@ -7,8 +7,12 @@ void main() {
   group('ShipState', () {
     test('빈 맵이면 기본값', () {
       final s = ShipState({});
-      expect(s.offset, 0);
+      expect(s.offsetMinutes, 0);
       expect(s.sync, isTrue);
+      expect(s.systemSupported, isTrue);
+      expect(s.ddayDate, isNull);
+      expect(s.ddayLabel, isNull);
+      expect(s.widgetOpacity, 90);
       expect(s.autoTimeZone, -1);
       expect(s.statusState, ShipState.stateNone);
       expect(s.adbConnected, isFalse);
@@ -17,7 +21,7 @@ void main() {
 
     test('네이티브 값 파싱', () {
       final s = ShipState({
-        'offset': 9,
+        'offsetMinutes': 540,
         'label': 'UTC+9',
         'zoneId': 'Etc/GMT-9',
         'sync': false,
@@ -28,7 +32,7 @@ void main() {
         'lastOk': true,
         'lastMessage': 'UTC+9 적용 (cmd)',
       });
-      expect(s.offset, 9);
+      expect(s.offsetMinutes, 540);
       expect(s.zoneId, 'Etc/GMT-9');
       expect(s.sync, isFalse);
       expect(s.adbConnected, isTrue);
@@ -36,9 +40,32 @@ void main() {
     });
 
     test('systemMatches 는 분 단위 시스템 오프셋과 비교', () {
-      expect(ShipState({'offset': 9, 'systemOffsetMinutes': 540}).systemMatches, isTrue);
-      expect(ShipState({'offset': -3, 'systemOffsetMinutes': -180}).systemMatches, isTrue);
-      expect(ShipState({'offset': 9, 'systemOffsetMinutes': 570}).systemMatches, isFalse);
+      expect(ShipState({'offsetMinutes': 540, 'systemOffsetMinutes': 540}).systemMatches, isTrue);
+      expect(ShipState({'offsetMinutes': -180, 'systemOffsetMinutes': -180}).systemMatches, isTrue);
+      expect(ShipState({'offsetMinutes': 540, 'systemOffsetMinutes': 570}).systemMatches, isFalse);
+      expect(ShipState({'offsetMinutes': 570, 'systemOffsetMinutes': 570}).systemMatches, isTrue);
+    });
+
+    test('30분 오프셋 · 디데이 · 위젯 불투명도 파싱', () {
+      final s = ShipState({
+        'offsetMinutes': 90,
+        'label': 'UTC+1:30',
+        'zoneId': null,
+        'systemSupported': false,
+        'ddayTitle': '입항',
+        'ddayDate': '2026-12-01',
+        'ddayDays': 16,
+        'ddayLabel': 'D-16',
+        'widgetOpacity': 40,
+      });
+      expect(s.offsetMinutes, 90);
+      expect(s.zoneId, '');
+      expect(s.systemSupported, isFalse);
+      expect(s.ddayTitle, '입항');
+      expect(s.ddayDate, '2026-12-01');
+      expect(s.ddayDays, 16);
+      expect(s.ddayLabel, 'D-16');
+      expect(s.widgetOpacity, 40);
     });
   });
 

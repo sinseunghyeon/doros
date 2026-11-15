@@ -8,34 +8,113 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
-/** 선박 시간은 정수 시간 단위 UTC 오프셋으로 다룬다. (-12 ~ +14) */
+/**
+ * 선박 시간은 30분 단위 UTC 오프셋(분)으로 다룬다. (-12:00 ~ +14:00)
+ * 정시 값은 Etc/GMT±N 으로, 30분 값은 DST 없는 실제 시간대가 있을 때만 시스템에 적용한다.
+ */
 object Zones {
-    const val MIN = -12
-    const val MAX = 14
+    const val MIN = -12 * 60
+    const val MAX = 14 * 60
+    const val STEP = 30
 
-    fun clamp(o: Int) = o.coerceIn(MIN, MAX)
+    /** 범위 안으로 자르고 30분 단위로 반올림 */
+    fun clamp(min: Int): Int {
+        val c = min.coerceIn(MIN, MAX)
+        return Math.floorDiv(c + STEP / 2, STEP) * STEP
+    }
 
     /**
+     * 30분 오프셋 중 DST 없이 고정된 tzdata 시간대 (2026 기준).
+     * 나머지 30분 값(+1:30 등)은 시스템 시간대가 없어 표시 전용이다.
+     */
+    private val HALF_HOUR = mapOf(
+        -570 to "Pacific/Marquesas",
+        210 to "Asia/Tehran",
+        270 to "Asia/Kabul",
+        330 to "Asia/Kolkata",
+        390 to "Asia/Yangon",
+        570 to "Australia/Darwin",
+    )
+
+    /**
+     * 시스템에 적용할 시간대 ID. 없으면 null (표시 전용).
      * POSIX 규칙상 Etc/GMT 의 부호는 반대다. UTC+9 → "Etc/GMT-9"
      * tzdata 에 Etc/GMT-14 ~ Etc/GMT+12 가 모두 존재한다.
      */
-    fun zoneId(offset: Int): String = when {
-        offset == 0 -> "Etc/GMT"
-        offset > 0 -> "Etc/GMT-$offset"
-        else -> "Etc/GMT+${-offset}"
+    fun zoneId(min: Int): String? {
+        if (min % 60 != 0) {
+            // 기기 tzdata 가 오래되면 (예: 2022년 이전 tzdata 의 Asia/Tehran 은 여름에 +4:30) 오프셋이 다를 수 있다
+            // → 지금 이 기기에서 실제로 같은 오프셋일 때만 시스템에 적용, 아니면 표시 전용
+            val id = HALF_HOUR[min] ?: return null
+            return id.takeIf { offsetMsOf(it) == min * 60_000 }
+        }
+        val h = min / 60
+        return when {
+            h == 0 -> "Etc/GMT"
+            h > 0 -> "Etc/GMT-$h"
+            else -> "Etc/GMT+${-h}"
+        }
     }
 
-    fun label(offset: Int) = if (offset >= 0) "UTC+$offset" else "UTC$offset"
+    /** 위젯 TextClock 표시용. 시스템 시간대가 없으면 java.util.TimeZone 사용자 지정 ID("GMT+01:30") */
+    fun displayZoneId(min: Int): String = zoneId(min) ?: run {
+        val a = Math.abs(min)
+        String.format(Locale.US, "GMT%s%02d:%02d", if (min < 0) "-" else "+", a / 60, a % 60)
+    }
+
+    fun label(min: Int): String {
+        val sign = if (min < 0) "-" else "+"
+        val a = Math.abs(min)
+        return if (a % 60 == 0) "UTC$sign${a / 60}" else "UTC$sign${a / 60}:${(a % 60).toString().padStart(2, '0')}"
+    }
 
     fun offsetMsOf(zoneId: String?): Int? {
         if (zoneId.isNullOrBlank()) return null
         return TimeZone.getTimeZone(zoneId).getOffset(System.currentTimeMillis())
     }
 
-    /** 현재 시스템 오프셋을 시간 단위로 (반올림) */
-    fun systemOffsetHours(): Int {
+    /** 현재 시스템 오프셋을 분 단위로 (30분 단위 반올림) */
+    fun systemOffsetMinutes(): Int {
         val ms = offsetMsOf(SysTz.current()) ?: TimeZone.getDefault().getOffset(System.currentTimeMillis())
-        return clamp(Math.round(ms / 3_600_000.0).toInt())
+        return clamp(ms / 60_000)
+    }
+}
+
+/** 디데이: 선박 시간 기준 오늘부터 목표일까지 남은 날 수 */
+object Dday {
+    /** "yyyy-MM-dd" → 남은 날 수 (오늘 = 0, 지났으면 음수). 형식이 틀리면 null */
+    fun daysLeft(date: String, offsetMin: Int, nowMs: Long = System.currentTimeMillis()): Long? {
+        val target = epochDay(date) ?: return null
+        val today = Math.floorDiv(nowMs + offsetMin * 60_000L, 86_400_000L)
+        return target - today
+    }
+
+    /** 0 → "D-Day", 12 → "D-12", -3 → "D+3" */
+    fun label(days: Long): String = when {
+        days == 0L -> "D-Day"
+        days > 0 -> "D-$days"
+        else -> "D+${-days}"
+    }
+
+    /** 다음 선박 시간 자정 (위젯 디데이 갱신 시각) */
+    fun nextMidnightMs(offsetMin: Int, nowMs: Long = System.currentTimeMillis()): Long {
+        val off = offsetMin * 60_000L
+        return (Math.floorDiv(nowMs + off, 86_400_000L) + 1) * 86_400_000L - off
+    }
+
+    private fun epochDay(date: String): Long? {
+        val m = Regex("""(\d{4})-(\d{2})-(\d{2})""").matchEntire(date.trim()) ?: return null
+        val (y, mo, d) = m.destructured
+        val cal = java.util.Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+            isLenient = false
+            clear()
+            set(y.toInt(), mo.toInt() - 1, d.toInt())
+        }
+        return try {
+            Math.floorDiv(cal.timeInMillis, 86_400_000L)
+        } catch (_: IllegalArgumentException) {
+            null
+        }
     }
 }
 
@@ -91,10 +170,35 @@ object SysTz {
 class Prefs(ctx: Context) {
     private val sp = ctx.applicationContext.getSharedPreferences("ship_time", Context.MODE_PRIVATE)
 
-    var offset: Int
-        get() = if (sp.contains(K_OFFSET)) sp.getInt(K_OFFSET, 0) else Zones.systemOffsetHours()
+    /** 선박 시간 오프셋 (분). 예전 버전의 시간 단위 값(K_OFFSET_HOURS)이 있으면 분으로 옮긴다. */
+    var offsetMinutes: Int
+        get() = when {
+            sp.contains(K_OFFSET_MIN) -> Zones.clamp(sp.getInt(K_OFFSET_MIN, 0))
+            sp.contains(K_OFFSET_HOURS) -> Zones.clamp(sp.getInt(K_OFFSET_HOURS, 0) * 60)
+            else -> Zones.systemOffsetMinutes()
+        }
         set(v) {
-            sp.edit().putInt(K_OFFSET, Zones.clamp(v)).commit()
+            sp.edit().putInt(K_OFFSET_MIN, Zones.clamp(v)).remove(K_OFFSET_HOURS).commit()
+        }
+
+    /** 디데이 제목 (예: 입항). 빈 문자열 가능 */
+    val ddayTitle: String get() = sp.getString(K_DDAY_TITLE, "") ?: ""
+
+    /** 디데이 날짜 "yyyy-MM-dd". 없으면 null */
+    val ddayDate: String? get() = sp.getString(K_DDAY_DATE, null)
+
+    fun setDday(title: String, date: String?) {
+        val e = sp.edit()
+        if (date.isNullOrBlank()) e.remove(K_DDAY_TITLE).remove(K_DDAY_DATE)
+        else e.putString(K_DDAY_TITLE, title.trim()).putString(K_DDAY_DATE, date.trim())
+        e.commit()
+    }
+
+    /** 위젯 배경 불투명도 (0~100 %). 기본 90 = 예전 배경색 #E6xxxxxx */
+    var widgetOpacity: Int
+        get() = sp.getInt(K_WIDGET_OPACITY, 90).coerceIn(0, 100)
+        set(v) {
+            sp.edit().putInt(K_WIDGET_OPACITY, v.coerceIn(0, 100)).commit()
         }
 
     /** 위젯 버튼이 시스템 시간대도 같이 바꿀지 */
@@ -166,7 +270,11 @@ class Prefs(ctx: Context) {
         const val STATE_FAIL = 2
         const val STATE_PENDING = 3
 
-        private const val K_OFFSET = "offset"
+        private const val K_OFFSET_HOURS = "offset"
+        private const val K_OFFSET_MIN = "offset_min"
+        private const val K_DDAY_TITLE = "dday_title"
+        private const val K_DDAY_DATE = "dday_date"
+        private const val K_WIDGET_OPACITY = "widget_opacity"
         private const val K_SYNC = "sync"
         private const val K_ROOT = "use_root"
         private const val K_AUTO_ADB = "auto_adb"

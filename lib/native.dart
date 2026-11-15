@@ -8,9 +8,21 @@ class Native {
 
   static Future<ShipState> state() async => ShipState(await _map('getState'));
 
-  static Future<ShipState> adjust(int delta) async => ShipState(await _map('adjust', {'delta': delta}));
+  /// [deltaMinutes]: ±60 / ±30
+  static Future<ShipState> adjust(int deltaMinutes) async =>
+      ShipState(await _map('adjust', {'deltaMinutes': deltaMinutes}));
 
-  static Future<ShipState> setOffset(int offset) async => ShipState(await _map('setOffset', {'offset': offset}));
+  /// [offsetMinutes]: 분 단위 UTC 오프셋 (30분 단위)
+  static Future<ShipState> setOffset(int offsetMinutes) async =>
+      ShipState(await _map('setOffset', {'offsetMinutes': offsetMinutes}));
+
+  /// [date] 는 "yyyy-MM-dd". null 이면 디데이 삭제.
+  static Future<ShipState> setDday(String title, String? date) async =>
+      ShipState(await _map('setDday', {'title': title, 'date': date}));
+
+  /// 위젯 배경 불투명도 0~100 %
+  static Future<ShipState> setWidgetOpacity(int value) async =>
+      ShipState(await _map('setWidgetOpacity', {'value': value}));
 
   static Future<ShipState> reapply() async => ShipState(await _map('reapply'));
 
@@ -60,9 +72,29 @@ class ShipState {
 
   static const stateNone = 0, stateOk = 1, stateFail = 2, statePending = 3;
 
-  int get offset => raw['offset'] as int? ?? 0;
+  /// 선박 시간 범위 (분) — Kotlin Zones.MIN / MAX 와 같다
+  static const minOffset = -12 * 60, maxOffset = 14 * 60;
+
+  /// 선박 시간 UTC 오프셋 (분, 30분 단위)
+  int get offsetMinutes => raw['offsetMinutes'] as int? ?? 0;
   String get label => raw['label'] as String? ?? '';
+
+  /// 시스템에 적용할 시간대. 30분 값 중 해당 시간대가 없으면 빈 문자열 (표시 전용)
   String get zoneId => raw['zoneId'] as String? ?? '';
+  bool get systemSupported => raw['systemSupported'] as bool? ?? true;
+
+  /// 디데이 (없으면 ddayDate == null)
+  String get ddayTitle => raw['ddayTitle'] as String? ?? '';
+  String? get ddayDate => raw['ddayDate'] as String?;
+
+  /// 선박 시간 기준 남은 날 수 (오늘 0, 지나면 음수)
+  int? get ddayDays => raw['ddayDays'] as int?;
+
+  /// "D-12" / "D-Day" / "D+3" (Kotlin 에서 계산)
+  String? get ddayLabel => raw['ddayLabel'] as String?;
+
+  /// 위젯 배경 불투명도 0~100 %
+  int get widgetOpacity => raw['widgetOpacity'] as int? ?? 90;
   bool get sync => raw['sync'] as bool? ?? true;
   bool get useRoot => raw['useRoot'] as bool? ?? false;
   bool? get rootVerified => raw['rootVerified'] as bool?;
@@ -95,5 +127,5 @@ class ShipState {
   bool? get lastOk => raw['lastOk'] as bool?;
   String? get lastMessage => raw['lastMessage'] as String?;
 
-  bool get systemMatches => systemOffsetMinutes == offset * 60;
+  bool get systemMatches => systemOffsetMinutes == offsetMinutes;
 }

@@ -77,6 +77,8 @@ object WirelessAdb {
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        // 재부팅으로 사라진 디데이 자정 갱신 알람을 다시 건다
+        WidgetUpdater.updateAll(ctx)
         if (!WirelessAdb.autoAllowed(ctx)) return
         AdbReconnectJob.schedule(ctx)
     }

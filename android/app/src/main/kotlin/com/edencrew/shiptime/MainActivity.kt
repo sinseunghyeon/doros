@@ -33,11 +33,11 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "getState" -> background(result) { state(ctx) }
                 "adjust" -> background(result) {
-                    val o = ShipTimeController.adjust(ctx, call.argument<Int>("delta") ?: 0, 15000)
+                    val o = ShipTimeController.adjust(ctx, call.argument<Int>("deltaMinutes") ?: 0, 15000)
                     state(ctx) + mapOf("lastOk" to o.ok, "lastMessage" to o.message)
                 }
                 "setOffset" -> background(result) {
-                    val o = ShipTimeController.setOffset(ctx, call.argument<Int>("offset") ?: 0, 15000)
+                    val o = ShipTimeController.setOffset(ctx, call.argument<Int>("offsetMinutes") ?: 0, 15000)
                     state(ctx) + mapOf("lastOk" to o.ok, "lastMessage" to o.message)
                 }
                 "reapply" -> background(result) {
@@ -45,7 +45,7 @@ class MainActivity : FlutterActivity() {
                     state(ctx) + mapOf("lastOk" to o.ok, "lastMessage" to o.message)
                 }
                 "adoptSystemOffset" -> background(result) {
-                    p.offset = Zones.systemOffsetHours()
+                    p.offsetMinutes = Zones.systemOffsetMinutes()
                     p.setStatus(Prefs.STATE_NONE, "")
                     WidgetUpdater.updateAll(ctx)
                     state(ctx)
@@ -53,6 +53,21 @@ class MainActivity : FlutterActivity() {
                 "setSync" -> background(result) {
                     p.sync = call.argument<Boolean>("value") ?: true
                     p.setStatus(Prefs.STATE_NONE, "")
+                    WidgetUpdater.updateAll(ctx)
+                    state(ctx)
+                }
+                "setDday" -> background(result) {
+                    // date 가 null/빈 문자열이면 디데이 삭제
+                    val date = call.argument<String>("date")
+                    if (date != null && date.isNotBlank() && Dday.daysLeft(date, 0) == null) {
+                        throw IllegalArgumentException("날짜 형식 오류: $date")
+                    }
+                    p.setDday(call.argument<String>("title") ?: "", date)
+                    WidgetUpdater.updateAll(ctx)
+                    state(ctx)
+                }
+                "setWidgetOpacity" -> background(result) {
+                    p.widgetOpacity = call.argument<Int>("value") ?: 90
                     WidgetUpdater.updateAll(ctx)
                     state(ctx)
                 }
@@ -172,10 +187,18 @@ class MainActivity : FlutterActivity() {
         } catch (_: Throwable) {
             -1
         }
+        val o = p.offsetMinutes
+        val ddayDate = p.ddayDate
         return mapOf(
-            "offset" to p.offset,
-            "label" to Zones.label(p.offset),
-            "zoneId" to Zones.zoneId(p.offset),
+            "offsetMinutes" to o,
+            "label" to Zones.label(o),
+            "zoneId" to Zones.zoneId(o),
+            "systemSupported" to (Zones.zoneId(o) != null),
+            "ddayTitle" to p.ddayTitle,
+            "ddayDate" to ddayDate,
+            "ddayDays" to ddayDate?.let { Dday.daysLeft(it, o) },
+            "ddayLabel" to ddayDate?.let { Dday.daysLeft(it, o) }?.let { Dday.label(it) },
+            "widgetOpacity" to p.widgetOpacity,
             "sync" to p.sync,
             "useRoot" to p.useRoot,
             "rootVerified" to RootPriv.verified,

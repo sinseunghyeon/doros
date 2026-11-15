@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="navy">#0B1E33</color>
-    <color name="widget_bg">#E60B1E33</color>
+    <!-- 불투명. 투명도는 위젯 설정(widgetOpacity)으로 ImageView alpha 에 적용 -->
+    <color name="widget_bg">#0B1E33</color>
     <color name="widget_btn">#1F3A5A</color>
     <color name="widget_text">#FFFFFF</color>
     <color name="widget_sub">#9FB3C8</color>

@@ -24,37 +24,46 @@ object ShipTimeController {
     private class Strategy(val name: String, val run: () -> String)
 
     // 현재 오프셋 읽기까지 잠금 안에서 해야 위젯 연타 시 두 스레드가 같은 값을 읽지 않는다
-    fun adjust(ctx: Context, delta: Int, budgetMs: Long = 8000): Outcome = synchronized(lock) {
-        setOffset(ctx, Prefs(ctx).offset + delta, budgetMs)
+    /** deltaMin: 분 단위 (±60, ±30) */
+    fun adjust(ctx: Context, deltaMin: Int, budgetMs: Long = 8000): Outcome = synchronized(lock) {
+        setOffset(ctx, Prefs(ctx).offsetMinutes + deltaMin, budgetMs)
     }
 
-    fun setOffset(ctx: Context, newOffset: Int, budgetMs: Long = 8000): Outcome = synchronized(lock) {
+    /** newOffsetMin: 분 단위 UTC 오프셋 */
+    fun setOffset(ctx: Context, newOffsetMin: Int, budgetMs: Long = 8000): Outcome = synchronized(lock) {
         val app = ctx.applicationContext
         val p = Prefs(app)
-        val o = Zones.clamp(newOffset)
-        p.offset = o
+        val o = Zones.clamp(newOffsetMin)
+        p.offsetMinutes = o
         if (!p.sync) {
             p.setStatus(Prefs.STATE_NONE, "표시 전용")
             WidgetUpdater.updateAll(app)
             return Outcome(true, "선박 시간 ${Zones.label(o)} (시스템 미연동)")
         }
+        val target = Zones.zoneId(o)
+        if (target == null) {
+            // +1:30 같은 값은 tzdata 에 고정 시간대가 없어 시스템에 적용할 수 없다
+            p.setStatus(Prefs.STATE_NONE, "표시 전용 (시스템 시간대 없음)")
+            p.appendLog(listOf("${Zones.label(o)}: 해당하는 시스템 시간대가 없어 표시만 함"))
+            WidgetUpdater.updateAll(app)
+            return Outcome(true, "선박 시간 ${Zones.label(o)} (시스템 시간대 없음 – 표시 전용)")
+        }
         p.setStatus(Prefs.STATE_PENDING, "적용 중…")
         WidgetUpdater.updateAll(app)
-        val out = applySystemZone(app, o, budgetMs)
+        val out = applySystemZone(app, o, target, budgetMs)
         p.setStatus(if (out.ok) Prefs.STATE_OK else Prefs.STATE_FAIL, out.message)
         WidgetUpdater.updateAll(app)
         out
     }
 
     /** 현재 저장된 오프셋을 시스템에 다시 적용 */
-    fun reapply(ctx: Context, budgetMs: Long = 15000): Outcome = setOffset(ctx, Prefs(ctx).offset, budgetMs)
+    fun reapply(ctx: Context, budgetMs: Long = 15000): Outcome = setOffset(ctx, Prefs(ctx).offsetMinutes, budgetMs)
 
-    private fun applySystemZone(ctx: Context, offset: Int, budgetMs: Long): Outcome {
+    private fun applySystemZone(ctx: Context, offset: Int, target: String, budgetMs: Long): Outcome {
         val p = Prefs(ctx)
         val log = mutableListOf<String>()
         val dl = Deadline(budgetMs)
-        val target = Zones.zoneId(offset)
-        val targetMs = offset * 3_600_000
+        val targetMs = offset * 60_000
 
         fun finish(ok: Boolean, msg: String): Outcome {
             log += (if (ok) "✓ " else "✗ ") + msg

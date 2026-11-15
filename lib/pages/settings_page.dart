@@ -17,6 +17,9 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   ShipController get c => widget.controller;
 
+  /// 슬라이더를 끄는 동안의 값. 손을 떼면 저장하고 null 로 돌린다.
+  int? _opacityDrag;
+
   Future<void> _adbConnect() async {
     // 연결 자체만 busy 로 감싼다. 페어링 다이얼로그는 busy 해제 후 따로 띄운다
     // (runRaw 안에서 또 runRaw 를 호출하면 busy 가드에 막혀 페어링이 실행되지 않음)
@@ -190,11 +193,13 @@ class _SettingsPageState extends State<SettingsPage> {
                 '   ("이 네트워크에서 항상 허용" 체크)\n'
                 '3. 이 앱에서 "페어링" → 무선 디버깅 화면에서 "페어링 코드로 기기 페어링"\n'
                 '4. 알림을 내려 "코드 입력"에 6자리 코드 입력 — 앱으로 돌아올 필요 없음\n'
-                '5. 연결되면 ±1h / 위젯으로 시스템 시간대가 바뀝니다\n\n'
+                '5. 연결되면 ±1h·±30m / 위젯으로 시스템 시간대가 바뀝니다\n\n'
                 '※ 페어링 후에는 재부팅해도 같은 Wi-Fi 에서 앱이 무선 디버깅을 자동으로 켜고 다시 연결합니다.\n'
                 '※ 무선 디버깅은 Wi-Fi 에 연결돼 있어야 켜집니다. 다른 Wi-Fi 에서는 2번(항상 허용)을 한 번 더 하세요.\n'
                 '※ 구글 계정이 있어도 동작합니다 (Device Owner/루트 불필요).\n'
-                '※ 무선 디버깅이 꺼져 있어도 위젯은 "표시 전용"으로 동작합니다.',
+                '※ 무선 디버깅이 꺼져 있어도 위젯은 "표시 전용"으로 동작합니다.\n'
+                '※ 30분 단위 시간대는 UTC−9:30, +3:30, +4:30, +5:30, +6:30, +9:30만 기기 시간대까지 바뀝니다. '
+                '나머지(예: UTC+1:30)는 표시만 합니다.',
                 style: TextStyle(height: 1.5),
               ),
             ],
@@ -204,11 +209,33 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  Widget _opacityTile(ShipState s) {
+    final v = _opacityDrag ?? s.widgetOpacity;
+    return ListTile(
+      title: Text('위젯 배경 불투명도  $v%'),
+      subtitle: Slider(
+        value: v.toDouble(),
+        min: 0,
+        max: 100,
+        divisions: 20,
+        label: '$v%',
+        onChanged: c.busy ? null : (x) => setState(() => _opacityDrag = x.round()),
+        // 드래그 중 busy 가 켜져도 손을 떼면 항상 드래그 상태를 해제한다
+        // (busy 이면 run 이 저장을 건너뛰고, 슬라이더는 저장된 값으로 돌아간다)
+        onChangeEnd: (x) async {
+          await c.setWidgetOpacity(x.round());
+          if (mounted) setState(() => _opacityDrag = null);
+        },
+      ),
+    );
+  }
+
   Widget _optionCard(ShipState s) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Column(children: [
+          _opacityTile(s),
           const ListTile(
             title: Text('날짜/시간 설정 열기'),
             subtitle: Text('시간대를 직접 바꾸거나 자동 시간대를 끌 때'),

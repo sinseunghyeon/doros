@@ -30,12 +30,13 @@ class _HomePageState extends State<HomePage> {
 
   ShipController get c => widget.controller;
 
-  void _adjust(int d) {
+  /// [deltaMinutes]: ±60 / ±30
+  void _adjust(int deltaMinutes) {
     setState(() {
       _bumpTick++;
       _catLine = (_catLines.toList()..shuffle()).first;
     });
-    c.adjust(d);
+    c.adjust(deltaMinutes);
   }
 
   @override
@@ -55,6 +56,8 @@ class _HomePageState extends State<HomePage> {
               _catHeader(),
               const SizedBox(height: 10),
               _clockCard(s),
+              const SizedBox(height: 12),
+              _ddayCard(s),
               const SizedBox(height: 12),
               _syncCard(s),
             ],
@@ -92,7 +95,7 @@ class _HomePageState extends State<HomePage> {
               valueListenable: c.clock,
               builder: (context, _, __) {
                 final utc = DateTime.now().toUtc();
-                final ship = utc.add(Duration(hours: s.offset));
+                final ship = utc.add(Duration(minutes: s.offsetMinutes));
                 final device = utc.add(Duration(minutes: s.systemOffsetMinutes));
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -116,23 +119,9 @@ class _HomePageState extends State<HomePage> {
               },
             ),
             const SizedBox(height: 16),
-            Row(children: [
-              Expanded(
-                child: PawButton(
-                  label: '−1h',
-                  hint: '늦추기',
-                  onTap: c.busy || s.offset <= -12 ? null : () => _adjust(-1),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: PawButton(
-                  label: '+1h',
-                  hint: '당기기',
-                  onTap: c.busy || s.offset >= 14 ? null : () => _adjust(1),
-                ),
-              ),
-            ]),
+            _adjustRow(s, 60),
+            const SizedBox(height: 10),
+            _adjustRow(s, 30),
             const SizedBox(height: 12),
             _statusLine(s),
           ],
@@ -141,15 +130,39 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  /// [step] 분 단위 ±버튼 한 줄 (60 → ±1h, 30 → ±30m)
+  Widget _adjustRow(ShipState s, int step) {
+    final unit = step == 60 ? '1h' : '${step}m';
+    final atMin = s.offsetMinutes <= ShipState.minOffset;
+    final atMax = s.offsetMinutes >= ShipState.maxOffset;
+    return Row(children: [
+      Expanded(
+        child: PawButton(
+          label: '−$unit',
+          hint: '늦추기',
+          onTap: c.busy || atMin ? null : () => _adjust(-step),
+        ),
+      ),
+      const SizedBox(width: 12),
+      Expanded(
+        child: PawButton(
+          label: '+$unit',
+          hint: '당기기',
+          onTap: c.busy || atMax ? null : () => _adjust(step),
+        ),
+      ),
+    ]);
+  }
+
   Widget _offsetPicker(ShipState s) {
     return DropdownButton<int>(
-      value: s.offset,
+      value: s.offsetMinutes,
       underline: const SizedBox.shrink(),
       isDense: true,
       style: const TextStyle(fontFamily: 'Pretendard', fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
       items: [
-        for (var o = -12; o <= 14; o++)
-          DropdownMenuItem(value: o, child: Text(o >= 0 ? 'UTC+$o' : 'UTC$o')),
+        for (var o = ShipState.minOffset; o <= ShipState.maxOffset; o += 30)
+          DropdownMenuItem(value: o, child: Text(offLabel(o))),
       ],
       onChanged: c.busy ? null : (o) => o == null ? null : c.setOffset(o),
     );
@@ -164,6 +177,9 @@ class _HomePageState extends State<HomePage> {
     } else if (!s.sync) {
       text = '표시 전용 모드 — 기기 시계는 바뀌지 않습니다';
       color = Colors.white60;
+    } else if (!s.systemSupported) {
+      text = '${s.label}에 해당하는 시스템 시간대가 없어 표시만 합니다 — 기기 시계는 바뀌지 않습니다';
+      color = AppColors.warn;
     } else if (s.statusState == ShipState.stateFail) {
       text = s.statusText.isEmpty ? '적용 실패' : s.statusText;
       color = AppColors.fail;
@@ -182,6 +198,59 @@ class _HomePageState extends State<HomePage> {
       const SizedBox(width: 8),
       Expanded(child: Text(text, style: TextStyle(color: color))),
     ]);
+  }
+
+  Widget _ddayCard(ShipState s) {
+    final theme = Theme.of(context).textTheme;
+    final label = s.ddayLabel;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 8, 16),
+        child: Row(children: [
+          Expanded(
+            child: label == null
+                ? Text('디데이 없음 — 입항일·하선일 등을 등록하면 위젯에도 표시됩니다',
+                    style: theme.bodyMedium?.copyWith(color: AppColors.sub))
+                : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(label,
+                        style: theme.headlineMedium
+                            ?.copyWith(color: AppColors.cream, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 2),
+                    Text(
+                      [if (s.ddayTitle.isNotEmpty) s.ddayTitle, s.ddayDate ?? ''].join(' · '),
+                      style: theme.bodySmall?.copyWith(color: AppColors.sub),
+                    ),
+                  ]),
+          ),
+          IconButton(
+            tooltip: label == null ? '디데이 추가' : '디데이 수정',
+            onPressed: c.busy ? null : () => _editDday(s),
+            icon: Icon(label == null ? Icons.add : Icons.edit_outlined),
+          ),
+          if (label != null)
+            IconButton(
+              tooltip: '디데이 삭제',
+              onPressed: c.busy ? null : () => c.setDday('', null),
+              icon: const Icon(Icons.delete_outline),
+            ),
+        ]),
+      ),
+    );
+  }
+
+  Future<void> _editDday(ShipState s) async {
+    // 기본 날짜: 선박 시간 기준 오늘
+    final shipNow = DateTime.now().toUtc().add(Duration(minutes: s.offsetMinutes));
+    final today = DateTime(shipNow.year, shipNow.month, shipNow.day);
+    final r = await showDialog<({String title, String date})>(
+      context: context,
+      builder: (_) => _DdayDialog(
+        title: s.ddayTitle,
+        date: DateTime.tryParse(s.ddayDate ?? '') ?? today,
+      ),
+    );
+    if (r == null || !mounted) return;
+    await c.setDday(r.title, r.date);
   }
 
   Widget _syncCard(ShipState s) {
@@ -213,6 +282,73 @@ class _HomePageState extends State<HomePage> {
           ),
         ]),
       ),
+    );
+  }
+}
+
+/// 디데이 입력 다이얼로그 — TextEditingController 수명을 State 가 소유한다.
+class _DdayDialog extends StatefulWidget {
+  const _DdayDialog({required this.title, required this.date});
+  final String title;
+  final DateTime date;
+
+  @override
+  State<_DdayDialog> createState() => _DdayDialogState();
+}
+
+class _DdayDialogState extends State<_DdayDialog> {
+  late final _titleCtrl = TextEditingController(text: widget.title);
+  late DateTime _date = widget.date;
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    super.dispose();
+  }
+
+  String get _dateText =>
+      '${_date.year.toString().padLeft(4, '0')}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}';
+
+  Future<void> _pickDate() async {
+    final d = await showDatePicker(
+      context: context,
+      initialDate: _date,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100, 12, 31),
+    );
+    if (d != null && mounted) setState(() => _date = d);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('디데이'),
+      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        TextField(
+          controller: _titleCtrl,
+          maxLength: 12,
+          decoration: const InputDecoration(
+            labelText: '제목 (선택)',
+            hintText: '예: 입항, 하선',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: _pickDate,
+          icon: const Icon(Icons.event, size: 18),
+          label: Text(_dateText),
+        ),
+        const SizedBox(height: 8),
+        const Text('선박 시간 기준으로 날짜를 셉니다.', style: TextStyle(color: AppColors.sub, fontSize: 12)),
+      ]),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, (title: _titleCtrl.text.trim(), date: _dateText)),
+          child: const Text('저장'),
+        ),
+      ],
     );
   }
 }

@@ -2,13 +2,27 @@
 
 > 기기에 설치되는 앱 이름은 **Helm**입니다. (패키지 `com.edencrew.shiptime`)
 
-홈 화면 위젯의 **[−1h] [+1h]** 버튼 한 번으로 선박 시간을 조정합니다.
+홈 화면 위젯의 **[−1h] [−30m] [+30m] [+1h]** 버튼 한 번으로 선박 시간을 조정합니다.
 **무선 디버깅(ADB)**이 연결되어 있으면 **기기 시스템 시간대도 같이** 바꿉니다.
 루트·Device Owner 없이, 구글 계정이 있는 기기에서도 동작합니다.
 
 - 기기 시계(UTC)는 건드리지 않고 **시간대만** `Etc/GMT±N`으로 바꿉니다. 그래서 UTC 기준이 틀어지지 않습니다.
 - 처음 한 번만 **알림에서 6자리 페어링 코드**를 입력하면 됩니다. 이후에는 재부팅해도 앱이 무선 디버깅을 **자동으로 켜고 다시 연결**합니다.
 - 권한이 없거나 Wi-Fi가 없어도 위젯은 "표시 전용"으로 동작합니다. 위젯의 TextClock이 선박 시간을 표시합니다.
+- **30분 단위**도 조정할 수 있습니다. 다만 시스템 시간대는 tzdata에 있는 ID만 받으므로, DST 없는 실제 시간대가 있는 값만 기기 시간대까지 바꿉니다.
+
+  | 오프셋 | 적용 시간대 |
+  |---|---|
+  | UTC−9:30 | `Pacific/Marquesas` |
+  | UTC+3:30 | `Asia/Tehran` |
+  | UTC+4:30 | `Asia/Kabul` |
+  | UTC+5:30 | `Asia/Kolkata` |
+  | UTC+6:30 | `Asia/Yangon` |
+  | UTC+9:30 | `Australia/Darwin` |
+
+  나머지 30분 값(예: UTC+1:30)은 위젯과 앱에만 표시하고 기기 시계는 바꾸지 않습니다 (상태: "표시 전용").
+- **디데이**: 시간 탭에서 제목(예: 입항)과 날짜를 하나 등록하면 앱과 위젯 머리글에 `D-12 입항`처럼 표시됩니다. 날짜는 선박 시간 기준으로 세고, 위젯은 선박 시간 자정에 갱신됩니다 (비정확 알람이라 몇 분 늦을 수 있음).
+- **위젯 투명도**: 설정 탭의 "위젯 배경 불투명도"(0~100%)로 위젯 배경만 투명하게 합니다. 글자와 버튼은 그대로입니다.
 
 ## 구조
 
@@ -19,15 +33,15 @@ lib/
   root_shell.dart       하단 탭 셸 (시간 · 설정 · 기록)
   ship_controller.dart  앱 전역 상태 (폴링, busy, 토스트)
   native.dart           MethodChannel 래퍼 (shiptime/native) + ShipState
-  pages/                home_page(시계·±1h) / settings_page(ADB 연결·페어링) / log_page(진단 로그)
+  pages/                home_page(시계·±1h/±30m·디데이) / settings_page(ADB 연결·페어링·위젯 투명도) / log_page(진단 로그)
   cat.dart, ui.dart, app_colors.dart   마스코트·포맷 유틸·색상
 android/app/src/main/kotlin/com/edencrew/shiptime/
-  Core.kt                Zones(오프셋↔zoneId), Prefs, Hidden(숨김 API), SysTz
+  Core.kt                Zones(분 단위 오프셋↔zoneId), Dday, Prefs, Hidden(숨김 API), SysTz
   Priv.kt                Priv 인터페이스 / RootPriv (선택 폴백)
   AdbPriv.kt             ★ 무선 디버깅(ADB)으로 셸 명령 실행
   ShipAdbManager.kt      libadb-android 연결·키 관리
   ShipTimeController.kt  ★ 시간대 변경 로직 (전략 순차 시도 + 검증 + 로그)
-  ShipTimeWidget.kt      AppWidgetProvider + RemoteViews 갱신 + DeviceAdminReceiver
+  ShipTimeWidget.kt      AppWidgetProvider + RemoteViews 갱신(디데이·배경 투명도·자정 갱신 알람) + DeviceAdminReceiver
   PairingService.kt      알림으로 페어링 (포트 mDNS 탐색 + 알림 입력칸으로 코드 수신)
   WirelessAdb.kt         무선 디버깅 자동 켜기 + BootReceiver / AdbReconnectJob (부팅 후 재연결)
   MainActivity.kt        MethodChannel 핸들러
@@ -132,8 +146,9 @@ API 30 에뮬레이터는 adbd가 TCP 포트를 열지 않아 자동 연결이 �
 # debug 훅: 위젯 버튼과 같은 경로로 실행하고 결과를 logcat 한 줄(RESULT ...)로 남김
 CMD() { adb shell am broadcast -f 268435488 -n com.edencrew.shiptime/.DebugCommandReceiver \
           -a com.edencrew.shiptime.debug.CMD --es id 1 "$@"; }
-CMD --es cmd plus                         # +1h  (minus, reapply, state, sync_on, sync_off)
+CMD --es cmd plus                         # +1h  (minus, plus30, minus30, reapply, state, sync_on, sync_off)
 CMD --es cmd set --ei offset 9            # UTC+9 지정
+CMD --es cmd set --ei offset_min 330      # UTC+5:30 지정 (분 단위)
 CMD --es cmd pair_start                   # 알림 페어링 시작 (앱이 화면에 떠 있을 때)
 CMD --es cmd pair_code --es code 123456   # 알림 입력칸과 같은 경로로 코드 제출
 CMD --es cmd boot                         # 부팅 후 재연결 작업 예약 (Wi-Fi 연결 시 바로 실행)
