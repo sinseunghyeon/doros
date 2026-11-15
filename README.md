@@ -100,6 +100,17 @@ flutter build apk --release
 ```
 
 - release 빌드는 debug 키로 서명돼 있어서 바로 설치할 수 있습니다.
+
+### iOS (개발 시작 단계)
+
+```bash
+flutter build ios --debug --no-codesign      # 기기용 빌드 확인
+flutter run -d "iPhone 15 Pro"               # 시뮬레이터 실행
+```
+
+- 번들 ID `com.edencrew.shiptime`, 앱 이름 Helm, 최소 iOS 15.0.
+- `flutter build ios --simulator`는 Flutter 3.38 + Xcode 27 조합에서 실패합니다. 시뮬레이터는 `flutter run`을 쓰세요.
+- iOS 네이티브 구현이 아직 없어 앱이 로딩 화면에서 멈춥니다.
 - `libadb-android`는 JitPack에서 받습니다 (`android/build.gradle.kts`에 jitpack 저장소).
 
 ## 에뮬레이터 테스트

@@ -19,8 +19,10 @@
 - `logcat -s TAG:I TAG:E`처럼 같은 태그를 두 번 쓰면 마지막 레벨만 적용된다.
 - Android 14+는 캐시된 앱으로 가는 브로드캐스트를 지연시킨다 → debug 훅은 `-f 268435488`(FOREGROUND) 사용.
 - API 30 에뮬레이터는 adbd가 TCP를 열지 않아 앱 ADB 연결을 자동화할 수 없다.
-- iOS를 추가할 때(`flutter create --platforms=ios .`) Flutter 템플릿의 최소 iOS 13.0은 Xcode 27에서 빌드되지 않는다
-  → `project.pbxproj`의 `IPHONEOS_DEPLOYMENT_TARGET`과 `ios/Flutter/AppFrameworkInfo.plist`를 15.0 이상으로 올린다.
+- iOS 최소 버전은 15.0이다 (Flutter 템플릿 기본 13.0은 Xcode 27에서 빌드되지 않음).
+- `flutter build ios --simulator`는 Flutter 3.38 + Xcode 27에서 실패한다 (`lipo -verify_arch`에 아키텍처를 여러 개 넘김).
+  시뮬레이터는 `flutter run -d <시뮬레이터>`로 실행한다 (한 아키텍처만 빌드해서 통과).
+- iOS에는 아직 네이티브 구현(MethodChannel `shiptime/native`)이 없어 앱이 로딩 화면에서 멈춘다.
 
 ## 규칙
 - 커밋: 한국어 제목 한 줄 + 빈 줄 + 변경 요약 bullet. 브랜치는 `main`.
