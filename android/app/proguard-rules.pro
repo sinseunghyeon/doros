@@ -4,3 +4,7 @@
 -keep class io.github.muntashirakon.adb.** { *; }
 -keep class org.conscrypt.** { *; }
 -keep class android.sun.** { *; }
+
+# conscrypt 가 KitKat 이하 전용으로 참조하는 플랫폼 클래스 (minSdk 24 라 실행 경로에 없음)
+-dontwarn com.android.org.conscrypt.SSLParametersImpl
+-dontwarn org.apache.harmony.xnet.provider.jsse.SSLParametersImpl
