@@ -37,13 +37,14 @@ lib/
   cat.dart, ui.dart, app_colors.dart   마스코트·포맷 유틸·색상
 android/app/src/main/kotlin/com/edencrew/shiptime/
   Core.kt                Zones(분 단위 오프셋↔zoneId), Dday, Prefs, Hidden(숨김 API), SysTz
+  ErrorReport.kt         진단 로그·예외를 Sentry로 전송 (DSN 없으면 꺼짐)
   Priv.kt                Priv 인터페이스 / RootPriv (선택 폴백)
   AdbPriv.kt             ★ 무선 디버깅(ADB)으로 셸 명령 실행
   ShipAdbManager.kt      libadb-android 연결·키 관리
   ShipTimeController.kt  ★ 시간대 변경 로직 (전략 순차 시도 + 검증 + 로그)
   ShipTimeWidget.kt      AppWidgetProvider + RemoteViews 갱신(디데이·배경 투명도·자정 갱신 알람) + DeviceAdminReceiver
   PairingService.kt      알림으로 페어링 (포트 mDNS 탐색 + 알림 입력칸으로 코드 수신)
-  WirelessAdb.kt         무선 디버깅 자동 켜기 + BootReceiver / AdbReconnectJob (부팅 후 재연결)
+  WirelessAdb.kt         무선 디버깅 자동 켜기 + Wi-Fi 연결 감시(WifiAvailableReceiver) / BootReceiver / AdbKeepAliveJob
   MainActivity.kt        MethodChannel 핸들러
 android/app/src/debug/.../DebugCommandReceiver.kt   debug 빌드 전용 테스트 훅 (아래 "에뮬레이터 테스트")
 android/app/src/main/res/layout/widget_ship_time(_large).xml   위젯 레이아웃 (기본 / 큰 고양이)
@@ -69,6 +70,7 @@ Flutter 앱도 같은 함수를 MethodChannel로 호출합니다.
 자동 시간대가 켜져 있으면 네트워크/GPS가 다시 덮어쓰기 때문입니다.
 
 어느 단계에서 실패했는지는 앱의 **진단 로그**에 남습니다.
+release 빌드에 Sentry DSN이 있으면 그 로그는 개발자에게도 전달됩니다. 아래 "오류 보고"를 보세요.
 
 ## 친구 폰 설정 (무선 디버깅)
 
@@ -86,14 +88,34 @@ Flutter 앱도 같은 함수를 MethodChannel로 호출합니다.
 첫 연결에 성공하면 앱이 그 ADB 권한으로 자기 자신에게 `WRITE_SECURE_SETTINGS`를 부여합니다(PC 불필요).
 그 뒤로는 다음과 같이 동작합니다.
 
-- 부팅 후 Wi-Fi가 잡히면 앱이 **무선 디버깅을 직접 켜고 다시 연결**합니다 (`AdbReconnectJob`).
+- 부팅 후, 그리고 **Wi-Fi가 다시 연결될 때마다** 앱이 무선 디버깅을 직접 켜고 다시 연결합니다 (`WifiAvailableReceiver`). 인터넷이 안 되는 선내 Wi-Fi에서도 동작하고, Wi-Fi가 있는 동안에는 30분마다 연결을 점검합니다.
+  (예전에는 JobScheduler의 "인터넷 확인 + 비종량제" 조건을 써서 인터넷이 없는 Wi-Fi에서는 재연결 작업이 실행되지 않았습니다.
+  지금은 Wi-Fi 연결 이벤트를 받는 즉시 처리하므로, 앱을 오래 열지 않아 대기 버킷이 낮아져도 밀리지 않습니다.)
 - 위젯을 눌렀을 때 무선 디버깅이 꺼져 있으면 앱이 켜고 바로 적용합니다.
+- 연결이 없을 때 바꾼 시간은 **"적용 대기"** 로 저장했다가, 다시 연결되면 자동으로 적용합니다.
+- 12시간마다 한 번 접속해 둡니다 (`AdbKeepAliveJob`). 시스템은 7일 동안 접속이 없는 키를 지우기 때문입니다 (`adb_allowed_connection_time` 기본값).
 - 설정 탭의 **"무선 디버깅 자동 켜기"** 로 끌 수 있습니다.
 
-조건: "항상 허용"으로 신뢰한 **같은 Wi-Fi**여야 합니다. 다른 Wi-Fi나 Wi-Fi가 없는 곳에서는 시스템이 무선 디버깅을 켜지 않으며, 그때 위젯은 "표시 전용"으로 동작합니다.
-새 Wi-Fi에서는 무선 디버깅을 한 번 직접 켜고 "항상 허용"을 체크하면 됩니다 (페어링은 다시 할 필요 없음).
+조건 (AOSP `AdbDebuggingManager` 동작):
+- 무선 디버깅은 Wi-Fi에서만 켜집니다. **Wi-Fi가 꺼지거나 끊기거나 다른 AP로 옮기면 시스템이 강제로 끕니다.**
+- "항상 허용"은 **AP(BSSID)마다** 저장됩니다. 선내처럼 AP가 여러 대면 처음 붙는 AP에서 뜨는 확인 창에서 "항상 허용"을 한 번씩 눌러야 합니다 (페어링은 다시 할 필요 없음).
 
 > 자동 켜기를 쓰면 신뢰한 Wi-Fi에서 무선 디버깅이 켜진 상태로 유지됩니다. 페어링된 키가 있어야 접속할 수 있지만, 원하지 않으면 스위치로 끄세요.
+
+### Wi-Fi 없이도 동작 (실험)
+
+선내 Wi-Fi가 끊기거나 데이터 로밍·eSIM으로 바뀌면 무선 디버깅이 꺼져서 시간대를 바꿀 수 없었습니다. 이 옵션(기본 켜짐)은 다음과 같이 동작합니다.
+
+1. ADB에 연결되면 **USB 디버깅을 켜고**(`adb_enabled=1`) adbd를 **TCP 5555**로도 띄웁니다 (`tcpip:5555`).
+   시스템(`AdbService`)은 USB·무선 디버깅이 **둘 다** 꺼질 때만 adbd를 멈추므로, Wi-Fi가 끊겨도 adbd는 살아 있습니다.
+2. 이후에는 `127.0.0.1:5555`(루프백)로 먼저 접속합니다. Wi-Fi가 없어도 됩니다. 인증은 페어링한 키를 그대로 씁니다.
+
+제약과 주의:
+- **5555 대기는 재부팅하면 풀립니다.** 재부팅 후에는 Wi-Fi에서 한 번 다시 연결돼야 합니다 (자동). USB 디버깅은 스위치를 끌 때까지 켜져 있습니다.
+- **5555 포트는 모든 네트워크에 열립니다** (`service.adb.listen_addrs`는 shell이 설정할 수 없어 루프백 전용으로 만들 수 없음).
+  처음 보는 기기가 접속하면 허용 창이 뜨므로 모르는 요청은 거부하세요. **이미 "항상 허용"한 PC는 창 없이 접속할 수 있습니다.**
+- Wi-Fi 감시는 일회성 콜백이라 처리 후 30분 뒤에 다시 등록합니다. 그 사이의 AP 이동·재접속은 다음 점검이나 위젯 버튼에서 처리됩니다 (절전 중에는 더 늦어질 수 있음).
+- USB 디버깅이 켜져 있으면 일부 금융 앱이 실행을 거부할 수 있습니다. 스위치를 끄면 5555 대기를 해제하고, 앱이 켰던 USB 디버깅도 끕니다.
 
 ### (선택) Device Owner — 공장초기화된 기기 / 계정이 없는 기기 전용
 
@@ -127,6 +149,20 @@ flutter run -d "iPhone 15 Pro"               # 시뮬레이터 실행
 - iOS 네이티브 구현이 아직 없어 앱이 로딩 화면에서 멈춥니다.
 - `libadb-android`는 JitPack에서 받습니다 (`android/build.gradle.kts`에 jitpack 저장소).
 
+## 오류 보고 (Sentry)
+
+진단 로그에 줄이 쌓일 때마다 **release** 빌드가 그 묶음을 Sentry로 보냅니다. 위젯만 눌러 앱 화면이 꺼져 있어도 Kotlin에서 바로 보냅니다. `✗` 로 시작하는 실패, 성공(`✓`) 없이 남은 예외·시간 초과는 error이고, 성공·적용 대기·연결 기록은 info입니다. Wi-Fi 감시·재연결·페어링에서 로그로 남지 않는 예외와, 앱이 열려 있을 때의 Flutter 예외도 error로 보냅니다. debug 빌드와 에뮬레이터 테스트는 보내지 않습니다.
+
+보내는 내용: 진단 로그 묶음, 예외, 기기 모델, Android 버전. `코드` 뒤의 숫자(페어링 코드)는 지우고, 화면 캡처는 보내지 않습니다. DSN이 켜져 있으면 기록 탭과 설정 문구에 "실패 기록은 개발자에게 전달됩니다"가 나옵니다. Sentry 알림을 error만 켜면 성공 기록은 쌓이되 알림은 실패일 때만 옵니다.
+
+켜려면 [Sentry](https://sentry.io)에서 Android 프로젝트를 만들고, DSN을 `android/local.properties`에 넣은 뒤 **release**로 다시 빌드합니다. 이 파일은 git에 올라가지 않습니다.
+
+```
+sentry.dsn=https://<key>@<org>.ingest.sentry.io/<project>
+```
+
+DSN이 없으면 앱 동작은 그대로이고 전송만 하지 않습니다.
+
 ## 에뮬레이터 테스트
 
 ```bash
@@ -151,6 +187,8 @@ CMD --es cmd set --ei offset 9            # UTC+9 지정
 CMD --es cmd set --ei offset_min 330      # UTC+5:30 지정 (분 단위)
 CMD --es cmd pair_start                   # 알림 페어링 시작 (앱이 화면에 떠 있을 때)
 CMD --es cmd pair_code --es code 123456   # 알림 입력칸과 같은 경로로 코드 제출
-CMD --es cmd boot                         # 부팅 후 재연결 작업 예약 (Wi-Fi 연결 시 바로 실행)
+CMD --es cmd boot                         # 부팅 시와 같이 Wi-Fi 감시 등록 (Wi-Fi 가 있으면 바로 재연결)
+CMD --es cmd reconnect                    # Wi-Fi 연결 시와 같은 재연결 + 적용 대기 처리를 바로 실행
+CMD --es cmd tcp_on                       # Wi-Fi 없이도 동작 켜기 (USB 디버깅 + tcpip:5555)  (tcp_off: 끄기)
 adb logcat -s ShipTime
 ```

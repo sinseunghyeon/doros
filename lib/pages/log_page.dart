@@ -14,8 +14,11 @@ class LogPage extends StatelessWidget {
     return AnimatedBuilder(
       animation: c,
       builder: (context, _) {
-        final lines = c.log.split('\n').where((l) => l.trim().isNotEmpty).toList();
-        final shown = lines.length > 200 ? lines.sublist(lines.length - 200) : lines;
+        final lines =
+            c.log.split('\n').where((l) => l.trim().isNotEmpty).toList();
+        final shown =
+            lines.length > 200 ? lines.sublist(lines.length - 200) : lines;
+        final sentry = c.state?.sentryEnabled == true;
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
           children: [
@@ -26,17 +29,23 @@ class LogPage extends StatelessWidget {
                   style: const TextStyle(color: Colors.white60)),
             ]),
             const SizedBox(height: 4),
-            const Text('문제가 생기면 복사해서 보내주세요',
-                style: TextStyle(color: Colors.white54, fontSize: 12)),
+            Text(
+              sentry
+                  ? '실패 기록은 개발자에게 전달됩니다. 필요하면 복사해서 보내주세요.'
+                  : '문제가 생기면 복사해서 보내주세요',
+              style: const TextStyle(color: Colors.white54, fontSize: 12),
+            ),
             const SizedBox(height: 12),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
-              decoration:
-                  BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(10)),
+              decoration: BoxDecoration(
+                  color: Colors.black26,
+                  borderRadius: BorderRadius.circular(10)),
               child: SelectableText(
                 shown.isEmpty ? '아직 기록이 없습니다.' : shown.join('\n'),
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 11.5, height: 1.5),
+                style: const TextStyle(
+                    fontFamily: 'monospace', fontSize: 11.5, height: 1.5),
               ),
             ),
             const SizedBox(height: 10),

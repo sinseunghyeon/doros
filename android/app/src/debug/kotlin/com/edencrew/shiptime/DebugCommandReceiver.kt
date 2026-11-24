@@ -13,7 +13,9 @@ import kotlin.concurrent.thread
  * cmd: plus | minus | plus30 | minus30 | set(--ei offset N 시간, 또는 --ei offset_min N 분)
  *      | reapply | sync_on | sync_off | state
  *      | pair_start(알림 페어링 시작 — 앱이 포그라운드일 때) | pair_code(--es code NNNNNN: 알림 입력과 같은 경로)
- *      | boot(부팅 재연결 작업 예약)
+ *      | boot(부팅 시와 같이 Wi-Fi 감시 등록 — Wi-Fi 가 있으면 바로 재연결)
+ *      | reconnect(Wi-Fi 연결 시와 같은 재연결·대기 적용을 바로 실행)
+ *      | tcp_on / tcp_off(Wi-Fi 없이도 동작 켜기/끄기) | connect(ADB 연결만)
  * 출력: RESULT id=.. cmd=.. ok=.. offset=(9 | 9:30 | -3:30) target=.. sys=.. adb=connected sdk=.. msg=..
  */
 class DebugCommandReceiver : BroadcastReceiver() {
@@ -47,7 +49,28 @@ class DebugCommandReceiver : BroadcastReceiver() {
                         )
                         null
                     }
-                    "boot" -> { AdbReconnectJob.schedule(app); null }
+                    "boot" -> { WirelessAdb.watchWifi(app); AdbKeepAliveJob.schedule(app); null }
+                    "reconnect" -> {
+                        val r = WirelessAdb.reconnectAndSync(app, "debug 재연결", attempts = 2)
+                        p.appendLog(r.log)
+                        ShipTimeController.Outcome(r.ok, r.log.last())
+                    }
+                    "connect" -> {
+                        AdbPriv.init(app)
+                        val ok = AdbPriv.connect(8000)
+                        ShipTimeController.Outcome(ok, AdbPriv.lastError ?: "connected")
+                    }
+                    "tcp_on" -> {
+                        AdbPriv.init(app)
+                        p.adbNoWifi = true
+                        if (!AdbPriv.connected) AdbPriv.connect(8000)
+                        ShipTimeController.Outcome(AdbPriv.connected, AdbPriv.ensureTcpMode(10_000) ?: "할 일 없음")
+                    }
+                    "tcp_off" -> {
+                        AdbPriv.init(app)
+                        p.adbNoWifi = false
+                        ShipTimeController.Outcome(true, AdbPriv.disableTcpMode(10_000))
+                    }
                     else -> null
                 }
                 val o = p.offsetMinutes
@@ -55,7 +78,8 @@ class DebugCommandReceiver : BroadcastReceiver() {
                     TAG,
                     "RESULT id=$id cmd=$cmd ok=${out?.ok} offset=${Zones.label(o).removePrefix("UTC").removePrefix("+")} " +
                         "target=${Zones.zoneId(o)} " +
-                        "sys=${SysTz.current()} adb=${AdbPriv.connected} " +
+                        "sys=${SysTz.current()} adb=${AdbPriv.connected} via=${AdbPriv.via?.replace(' ', '_')} " +
+                        "wifi=${WirelessAdb.wifiConnected(app)} pending=${p.pendingApply} state=${p.statusState} " +
                         "sdk=${android.os.Build.VERSION.SDK_INT} msg=${out?.message}",
                 )
             } catch (t: Throwable) {

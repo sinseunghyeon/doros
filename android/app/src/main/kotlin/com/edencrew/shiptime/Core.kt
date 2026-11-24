@@ -222,6 +222,32 @@ class Prefs(ctx: Context) {
             sp.edit().putBoolean(K_AUTO_ADB, v).commit()
         }
 
+    /**
+     * Wi-Fi 없이도 동작 (실험): 연결될 때 USB 디버깅을 켜고 adbd 를 TCP 5555 로도 띄워 둔다.
+     * 시스템은 Wi-Fi 가 끊기면 무선 디버깅을 강제로 끄지만, USB 디버깅이 켜져 있으면 adbd 는 살아 있어
+     * 127.0.0.1:5555 로 계속 접속할 수 있다. 5555 는 모든 네트워크에 열리고 재부팅하면 풀린다.
+     * USB 디버깅(adb_enabled)은 Settings.Global 이라 재부팅 후에도 남는다 → 끌 때 usbDebugByApp 으로 되돌린다.
+     */
+    var adbNoWifi: Boolean
+        get() = sp.getBoolean(K_ADB_NO_WIFI, true)
+        set(v) {
+            sp.edit().putBoolean(K_ADB_NO_WIFI, v).commit()
+        }
+
+    /** USB 디버깅을 이 앱이 켰는지 — "Wi-Fi 없이도 동작"을 끌 때 원래대로 끄기 위해 */
+    var usbDebugByApp: Boolean
+        get() = sp.getBoolean(K_USB_BY_APP, false)
+        set(v) {
+            sp.edit().putBoolean(K_USB_BY_APP, v).commit()
+        }
+
+    /** 연결이 없어 시스템에 적용하지 못한 변경이 남아 있는지 — 다시 연결되면 자동 적용 */
+    var pendingApply: Boolean
+        get() = sp.getBoolean(K_PENDING_APPLY, false)
+        set(v) {
+            sp.edit().putBoolean(K_PENDING_APPLY, v).commit()
+        }
+
     /** ADB 연결에 한 번이라도 성공했는지 (= 페어링 완료) — 자동 켜기의 전제 */
     var adbEverConnected: Boolean
         get() = sp.getBoolean(K_ADB_EVER, false)
@@ -251,6 +277,7 @@ class Prefs(ctx: Context) {
         if (lines.isEmpty()) return
         // logcat 으로도 남김 (adb logcat -s ShipTime)
         lines.forEach { android.util.Log.i("ShipTime", it) }
+        ErrorReport.diagnostic(lines)
         val stamp = SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
         }.format(Date())
@@ -270,6 +297,9 @@ class Prefs(ctx: Context) {
         const val STATE_FAIL = 2
         const val STATE_PENDING = 3
 
+        /** 연결이 없어 적용 대기 중 (연결되면 자동 적용) */
+        const val STATE_WAITING = 4
+
         private const val K_OFFSET_HOURS = "offset"
         private const val K_OFFSET_MIN = "offset_min"
         private const val K_DDAY_TITLE = "dday_title"
@@ -279,6 +309,9 @@ class Prefs(ctx: Context) {
         private const val K_ROOT = "use_root"
         private const val K_AUTO_ADB = "auto_adb"
         private const val K_ADB_EVER = "adb_ever_connected"
+        private const val K_ADB_NO_WIFI = "adb_no_wifi"
+        private const val K_PENDING_APPLY = "pending_apply"
+        private const val K_USB_BY_APP = "usb_debug_by_app"
         private const val K_STATUS_STATE = "status_state"
         private const val K_STATUS_TEXT = "status_text"
         private const val K_LOG = "log"

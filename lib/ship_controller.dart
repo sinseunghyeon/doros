@@ -114,6 +114,7 @@ class ShipController extends ChangeNotifier {
   Future<void> setSync(bool v) => run(() => Native.setSync(v));
   Future<void> setUseRoot(bool v) => run(() => Native.setUseRoot(v));
   Future<void> setAutoAdb(bool v) => run(() => Native.setAutoAdb(v));
+  Future<void> setAdbNoWifi(bool v) => run(() => Native.setAdbNoWifi(v));
   Future<void> reapply() => run(Native.reapply);
   Future<void> adoptSystemOffset() => run(Native.adoptSystemOffset);
 

@@ -26,15 +26,20 @@ class Native {
 
   static Future<ShipState> reapply() async => ShipState(await _map('reapply'));
 
-  static Future<ShipState> adoptSystemOffset() async => ShipState(await _map('adoptSystemOffset'));
+  static Future<ShipState> adoptSystemOffset() async =>
+      ShipState(await _map('adoptSystemOffset'));
 
-  static Future<ShipState> setSync(bool v) async => ShipState(await _map('setSync', {'value': v}));
+  static Future<ShipState> setSync(bool v) async =>
+      ShipState(await _map('setSync', {'value': v}));
 
-  static Future<ShipState> setUseRoot(bool v) async => ShipState(await _map('setUseRoot', {'value': v}));
+  static Future<ShipState> setUseRoot(bool v) async =>
+      ShipState(await _map('setUseRoot', {'value': v}));
 
-  static Future<ShipState> adbConnect() async => ShipState(await _map('adbConnect'));
+  static Future<ShipState> adbConnect() async =>
+      ShipState(await _map('adbConnect'));
 
-  static Future<ShipState> adbDisconnect() async => ShipState(await _map('adbDisconnect'));
+  static Future<ShipState> adbDisconnect() async =>
+      ShipState(await _map('adbDisconnect'));
 
   static Future<int?> adbDiscoverPairingPort() async {
     final r = await _map('adbDiscoverPairingPort');
@@ -43,24 +48,40 @@ class Native {
     return null;
   }
 
-  static Future<ShipState> adbPair({required int port, required String code}) async =>
+  static Future<ShipState> adbPair(
+          {required int port, required String code}) async =>
       ShipState(await _map('adbPair', {'port': port, 'code': code}));
 
   /// 알림 페어링 시작 (알림 권한 요청 → 서비스 → 무선 디버깅 설정 열기)
   /// {started: bool, reason?: notification_denied | ...}
-  static Future<Map<String, dynamic>> startNotificationPairing() => _map('startNotificationPairing');
+  static Future<Map<String, dynamic>> startNotificationPairing() =>
+      _map('startNotificationPairing');
 
-  static Future<void> openWirelessDebugging() => _ch.invokeMethod('openWirelessDebugging');
+  static Future<void> openWirelessDebugging() =>
+      _ch.invokeMethod('openWirelessDebugging');
 
-  static Future<ShipState> setAutoAdb(bool v) async => ShipState(await _map('setAutoAdb', {'value': v}));
+  /// Wi-Fi 없이도 동작 (실험): USB 디버깅 + adbd TCP 5555
+  static Future<ShipState> setAdbNoWifi(bool v) async =>
+      ShipState(await _map('setAdbNoWifi', {'value': v}));
 
-  static Future<void> openDateSettings() => _ch.invokeMethod('openDateSettings');
-  static Future<void> openDeveloperSettings() => _ch.invokeMethod('openDeveloperSettings');
+  static Future<ShipState> setAutoAdb(bool v) async =>
+      ShipState(await _map('setAutoAdb', {'value': v}));
 
-  static Future<String> log() async => (await _ch.invokeMethod<String>('getLog')) ?? '';
+  static Future<void> openDateSettings() =>
+      _ch.invokeMethod('openDateSettings');
+  static Future<void> openDeveloperSettings() =>
+      _ch.invokeMethod('openDeveloperSettings');
+
+  static Future<String> log() async =>
+      (await _ch.invokeMethod<String>('getLog')) ?? '';
   static Future<void> clearLog() => _ch.invokeMethod('clearLog');
 
-  static Future<Map<String, dynamic>> _map(String m, [Map<String, dynamic>? args]) async {
+  /// Flutter 쪽 예외. DSN이 없거나 debug면 네이티브가 무시한다.
+  static Future<void> reportError(String message, String? stack) =>
+      _ch.invokeMethod('reportError', {'message': message, 'stack': stack});
+
+  static Future<Map<String, dynamic>> _map(String m,
+      [Map<String, dynamic>? args]) async {
     final r = await _ch.invokeMethod<Map<Object?, Object?>>(m, args);
     return (r ?? {}).map((k, v) => MapEntry(k.toString(), v));
   }
@@ -70,7 +91,12 @@ class ShipState {
   ShipState(this.raw);
   final Map<String, dynamic> raw;
 
-  static const stateNone = 0, stateOk = 1, stateFail = 2, statePending = 3;
+  /// stateWaiting: 연결이 없어 적용 대기 중 (연결되면 자동 적용)
+  static const stateNone = 0,
+      stateOk = 1,
+      stateFail = 2,
+      statePending = 3,
+      stateWaiting = 4;
 
   /// 선박 시간 범위 (분) — Kotlin Zones.MIN / MAX 와 같다
   static const minOffset = -12 * 60, maxOffset = 14 * 60;
@@ -111,6 +137,20 @@ class ShipState {
   bool get adbNeedsPairing => raw['adbNeedsPairing'] as bool? ?? false;
   String? get adbError => raw['adbError'] as String?;
 
+  /// 연결 경로 ("127.0.0.1:5555" / "무선 디버깅 …"). 미연결이면 null
+  String? get adbVia => raw['adbVia'] as String?;
+
+  /// 루프백(127.0.0.1:5555)으로 연결됨 = Wi-Fi 없이도 동작 중
+  bool get adbViaLoopback => raw['adbViaLoopback'] as bool? ?? false;
+
+  /// Wi-Fi 없이도 동작 (실험) 설정
+  bool get adbNoWifi => raw['adbNoWifi'] as bool? ?? true;
+
+  /// 시스템에 아직 적용하지 못한 변경이 있음 (연결되면 자동 적용)
+  bool get pendingApply => raw['pendingApply'] as bool? ?? false;
+
+  bool get wifiConnected => raw['wifiConnected'] as bool? ?? false;
+
   /// 재부팅/꺼짐 시 무선 디버깅 자동 켜기 (사용자 설정)
   bool get autoAdb => raw['autoAdb'] as bool? ?? true;
 
@@ -118,6 +158,9 @@ class ShipState {
   bool get secureSettings => raw['secureSettings'] as bool? ?? false;
   bool get adbEverConnected => raw['adbEverConnected'] as bool? ?? false;
   bool get adbWifiEnabled => raw['adbWifiEnabled'] as bool? ?? false;
+
+  /// release 이고 Sentry DSN이 있을 때만 진단 로그를 개발자에게 보낸다
+  bool get sentryEnabled => raw['sentryEnabled'] as bool? ?? false;
 
   bool get deviceOwner => raw['deviceOwner'] as bool? ?? false;
   int get sdk => raw['sdk'] as int? ?? 0;

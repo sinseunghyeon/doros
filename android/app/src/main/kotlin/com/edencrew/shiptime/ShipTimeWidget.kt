@@ -15,6 +15,11 @@ open class ShipTimeWidget : AppWidgetProvider() {
 
     override fun onUpdate(ctx: Context, mgr: AppWidgetManager, ids: IntArray) {
         WidgetUpdater.updateAll(ctx)
+        // 앱 업데이트 후에도 불리므로, 풀린 Wi-Fi 감시·연결 유지 작업을 다시 등록한다
+        if (WirelessAdb.autoAllowed(ctx)) {
+            WirelessAdb.watchWifi(ctx)
+            AdbKeepAliveJob.schedule(ctx)
+        }
     }
 
     override fun onReceive(ctx: Context, intent: Intent) {
@@ -125,6 +130,7 @@ object WidgetUpdater {
         if (Zones.zoneId(o) == null) return "표시 전용" to R.color.status_warn
         return when (p.statusState) {
             Prefs.STATE_PENDING -> "적용 중…" to R.color.status_warn
+            Prefs.STATE_WAITING -> "적용 대기" to R.color.status_warn
             Prefs.STATE_FAIL -> "적용 실패" to R.color.status_fail
             else -> {
                 val sysMs = Zones.offsetMsOf(SysTz.current())

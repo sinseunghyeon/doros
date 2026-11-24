@@ -26,9 +26,15 @@ $(printf '%s\n' "$out" | tail -30)
 fi
 if [ "$kt_changed" -gt 0 ]; then
   [ -z "${JAVA_HOME:-}" ] && export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
-  out=$(cd android && ./gradlew -q :app:compileDebugKotlin 2>&1) || report+="[Kotlin 컴파일]
-$(printf '%s\n' "$out" | grep -E '^e: |error' | head -20)
+  # compileDebugKotlin 은 Flutter(Dart) 빌드에 의존하므로 Dart 오류("파일:줄:열: Error:")도 여기서 나온다.
+  # 오류 줄을 못 찾으면 로그 끝부분을 그대로 넘긴다 (빈 보고 방지).
+  out=$(cd android && ./gradlew -q :app:compileDebugKotlin 2>&1) || {
+    errs=$(printf '%s\n' "$out" | grep -E '^e: |: Error: ' | head -20)
+    [ -z "$errs" ] && errs=$(printf '%s\n' "$out" | grep -vE '^\s*$' | tail -15)
+    report+="[Kotlin 컴파일 (Dart 빌드 포함)]
+$errs
 "
+  }
 fi
 if [ -n "$swift_files" ]; then
   parse_err=""

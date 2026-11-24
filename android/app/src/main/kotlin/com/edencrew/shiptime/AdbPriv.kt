@@ -5,6 +5,7 @@ import android.os.Build
 import io.github.muntashirakon.adb.AdbPairingRequiredException
 import io.github.muntashirakon.adb.android.AdbMdns
 import io.github.muntashirakon.adb.android.AndroidUtils
+import android.provider.Settings
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.CountDownLatch
@@ -20,6 +21,10 @@ import kotlin.concurrent.thread
  * 전제: 개발자 옵션 > 무선 디버깅 ON (Android 11+).
  * 첫 연결 후에는 WRITE_SECURE_SETTINGS 를 스스로 부여해 두고, 무선 디버깅이 꺼져 있으면
  * 앱이 직접 켠다 (WirelessAdb) — 재부팅 후에도 사용자가 다시 켤 필요가 없다.
+ *
+ * Wi-Fi 없이도 동작 (ensureTcpMode): 시스템은 Wi-Fi 가 끊기거나 AP 가 바뀌면 무선 디버깅을 강제로 끈다.
+ * 연결돼 있을 때 USB 디버깅을 켜고 adbd 를 TCP 5555 로도 띄워 두면 (AdbService 는 USB·무선이 둘 다
+ * 꺼질 때만 adbd 를 멈춘다) Wi-Fi 가 없어도 127.0.0.1:5555 로 접속할 수 있다. 재부팅하면 풀린다.
  */
 object AdbPriv : Priv {
     override val name = "ADB(무선 디버깅)"
@@ -30,6 +35,17 @@ object AdbPriv : Priv {
     @Volatile var lastError: String? = null
         private set
     @Volatile var needsPairing: Boolean = false
+        private set
+
+    /** 현재 연결 경로 (예: "127.0.0.1:5555", "무선 디버깅 192.168.0.5:41234") */
+    @Volatile var via: String? = null
+        private set
+
+    /** 루프백(127.0.0.1:5555)으로 연결돼 있는지 = Wi-Fi 없이도 동작 중 */
+    val viaLoopback: Boolean get() = connected && via == LOOPBACK_VIA
+
+    /** 이번 부팅에서 adbd 가 5555 로 대기 중인 것을 확인했는지 (service.adb.tcp.port 는 재부팅 때만 풀린다) */
+    @Volatile var tcpModeReady: Boolean = false
         private set
 
     private val lock = Any()
@@ -74,6 +90,153 @@ object AdbPriv : Priv {
         } catch (_: Throwable) {
         }
         connected = false
+        via = null
+    }
+
+    /**
+     * "Wi-Fi 없이도 동작" 준비: USB 디버깅을 켜고 adbd 가 TCP 5555 에서도 대기하게 한다.
+     * tcpip:5555 를 보내면 adbd 가 재시작하므로 연결이 끊기고, 127.0.0.1:5555 로 다시 붙는다.
+     * @return 로그 한 줄 (할 일이 없었으면 null)
+     */
+    fun ensureTcpMode(timeoutMs: Long): String? = synchronized(lock) {
+        val ctx = appCtx ?: return null
+        val p = Prefs(ctx)
+        if (!p.adbNoWifi) return cleanupUsbDebug(ctx)
+        if (!connected) return null
+        val dl = Deadline(timeoutMs)
+        val notes = mutableListOf<String>()
+        try {
+            // 1. USB 디버깅 켜기 — 무선 디버깅이 꺼져도 adbd 가 멈추지 않게
+            if (Settings.Global.getInt(ctx.contentResolver, Settings.Global.ADB_ENABLED, 0) != 1) {
+                val r = execUnlocked("settings put global adb_enabled 1", dl.cap(3000))
+                if (r.code == 0) Prefs(ctx).usbDebugByApp = true
+                notes += "USB 디버깅 켬: ${r.summary()}"
+            }
+            // 2. 이미 루프백으로 붙어 있거나 5555 로 떠 있으면 끝
+            if (via == LOOPBACK_VIA) {
+                tcpModeReady = true
+                return notes.joinToString(" / ").ifEmpty { null }
+            }
+            val port = execUnlocked("getprop service.adb.tcp.port", dl.cap(2000)).out.trim()
+            if (port == "$TCP_PORT") {
+                tcpModeReady = true
+                return notes.joinToString(" / ").ifEmpty { null }
+            }
+            // 3. tcpip:5555 → adbd 재시작 → 루프백으로 다시 연결
+            val mgr = ShipAdbManager.get(ctx)
+            val reply = try {
+                mgr.openStream("tcpip:$TCP_PORT").use { st ->
+                    val buf = ByteArray(256)
+                    val n = try {
+                        st.openInputStream().read(buf)
+                    } catch (_: java.io.IOException) {
+                        -1
+                    }
+                    if (n > 0) String(buf, 0, n, StandardCharsets.UTF_8).trim() else ""
+                }
+            } catch (t: Throwable) {
+                "(${t.javaClass.simpleName})"
+            }
+            notes += "tcpip:$TCP_PORT → ${reply.ifEmpty { "응답 없음" }}"
+            connected = false
+            via = null
+            try {
+                mgr.disconnect()
+            } catch (_: Throwable) {
+            }
+            // adbd 가 다시 뜰 때까지 짧게 재시도
+            while (!dl.expired) {
+                Thread.sleep(minOf(700L, dl.remaining()))
+                if (tryLoopback(ctx, mgr, dl)) break
+            }
+            if (connected) tcpModeReady = true
+            notes += if (connected) "✓ $LOOPBACK_VIA 재연결 (이제 Wi-Fi 없이도 동작)"
+            else "✗ $LOOPBACK_VIA 재연결 실패 (다음 연결 때 다시 시도)"
+        } catch (t: Throwable) {
+            notes += "✗ TCP 모드 준비 예외: ${t.javaClass.simpleName}: ${t.message}"
+        }
+        notes.joinToString(" / ")
+    }
+
+    /**
+     * "Wi-Fi 없이도 동작" 끄기: adbd 를 TCP 대기 없이 재시작(usb:)하고, 이 앱이 켰던 USB 디버깅을 끈다.
+     * 연결돼 있지 않으면 할 수 있는 게 없다 (재부팅하면 어차피 풀림).
+     */
+    fun disableTcpMode(timeoutMs: Long): String = synchronized(lock) {
+        val ctx = appCtx ?: return "Context 없음"
+        val p = Prefs(ctx)
+        val dl = Deadline(timeoutMs)
+        if (!connected && !connectInternal(ctx, dl.cap(5000))) {
+            return "ADB 미연결 – 5555 대기는 재부팅하면 풀립니다"
+        }
+        val notes = mutableListOf<String>()
+        // 순서 주의: USB 디버깅을 먼저 끄면 (무선 디버깅도 꺼져 있을 때) adbd 가 멈춰 usb: 를 보낼 수 없다
+        try {
+            ShipAdbManager.get(ctx).openStream("usb:").use { st ->
+                try {
+                    st.openInputStream().read(ByteArray(128))
+                } catch (_: java.io.IOException) {
+                }
+            }
+            notes += "adbd 5555 대기 해제"
+        } catch (t: Throwable) {
+            notes += "5555 해제 실패: ${t.javaClass.simpleName}"
+        }
+        connected = false
+        via = null
+        tcpModeReady = false
+        try {
+            ShipAdbManager.get(ctx).disconnect()
+        } catch (_: Throwable) {
+        }
+        cleanupUsbDebug(ctx)?.let { notes += it }
+        notes.joinToString(" / ")
+    }
+
+    /**
+     * "Wi-Fi 없이도 동작"이 꺼져 있는데 이 앱이 켰던 USB 디버깅이 남아 있으면 끈다.
+     * WRITE_SECURE_SETTINGS 로 앱이 직접 쓰므로 ADB 연결이 없어도 된다. 실패하면 다음 연결 때 다시 시도.
+     */
+    private fun cleanupUsbDebug(ctx: Context): String? {
+        val p = Prefs(ctx)
+        if (p.adbNoWifi || !p.usbDebugByApp) return null
+        return try {
+            Settings.Global.putInt(ctx.contentResolver, Settings.Global.ADB_ENABLED, 0)
+            p.usbDebugByApp = false
+            "앱이 켰던 USB 디버깅 끔"
+        } catch (t: Throwable) {
+            "USB 디버깅 끄기 실패 (다음에 다시 시도): ${t.javaClass.simpleName}"
+        }
+    }
+
+    /** 127.0.0.1:5555 접속 시도. 성공하면 connected/via 설정 */
+    private fun tryLoopback(ctx: Context, mgr: ShipAdbManager, dl: Deadline): Boolean {
+        return try {
+            // 기본 타임아웃은 Long.MAX_VALUE 라 (키 확인 창 대기 등) 무한정 막힐 수 있다
+            mgr.setTimeout(dl.cap(3000), TimeUnit.MILLISECONDS)
+            if (mgr.connect(LOOPBACK, TCP_PORT)) {
+                markConnected(ctx, LOOPBACK_VIA)
+                true
+            } else {
+                false
+            }
+        } catch (_: java.io.IOException) {
+            false // 거절 = adbd 가 5555 에서 대기하지 않음
+        } catch (e: AdbPairingRequiredException) {
+            false
+        } finally {
+            mgr.setTimeout(IO_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        }
+    }
+
+    private fun markConnected(ctx: Context, how: String) {
+        ShipAdbManager.get(ctx).setTimeout(IO_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        connected = true
+        via = how
+        if (how == LOOPBACK_VIA) tcpModeReady = true
+        needsPairing = false
+        lastError = null
+        onConnected(ctx)
     }
 
     /**
@@ -143,6 +306,24 @@ object AdbPriv : Priv {
         return try {
             val mgr = ShipAdbManager.get(ctx)
             val dl = Deadline(timeoutMs.coerceAtLeast(1000L))
+            // 끊긴 연결이 살아 있는 것처럼 남아 있으면 connect(host, port) 가 바로 false 를 돌려준다 → 먼저 정리
+            try {
+                mgr.disconnect()
+            } catch (_: Throwable) {
+            }
+            connected = false
+            via = null
+
+            // 1. 루프백 5555: "Wi-Fi 없이도 동작"으로 열어 둔 adbd (또는 에뮬레이터 adb root). Wi-Fi 불필요
+            if (tryLoopback(ctx, mgr, dl)) return true
+
+            // 2. 무선 디버깅(mDNS). Wi-Fi 가 없으면 시스템이 무선 디버깅을 꺼 버리므로 기다릴 필요가 없다
+            if (!WirelessAdb.wifiConnected(ctx)) {
+                lastError = "Wi-Fi 없음 – 무선 디버깅을 쓸 수 없습니다" +
+                    if (Prefs(ctx).adbNoWifi) " (Wi-Fi 에서 한 번 연결하면 이후에는 Wi-Fi 없이도 동작)" else ""
+                return false
+            }
+            mgr.setTimeout(dl.remaining().coerceAtLeast(1000L), TimeUnit.MILLISECONDS)
             val ok = try {
                 mgr.autoConnect(ctx, dl.remaining().coerceAtLeast(1000L))
             } catch (e: AdbPairingRequiredException) {
@@ -163,30 +344,18 @@ object AdbPriv : Priv {
                     connected = false
                     return false
                 } catch (t2: Throwable) {
-                    // 마지막으로 5555 폴백 (구형 tcpip / 에뮬레이터).
-                    // 같은 기기의 adbd 이므로 루프백을 먼저 — getHostIpAddress 는 에뮬레이터에서
-                    // 10.0.2.2(호스트 PC)를 돌려줘 엉뚱한 adbd 에 붙을 수 있다.
-                    try {
-                        try {
-                            mgr.connect("127.0.0.1", 5555)
-                        } catch (_: java.io.IOException) {
-                            mgr.connect(AndroidUtils.getHostIpAddress(ctx), 5555)
-                        }
-                    } catch (t3: Throwable) {
-                        android.util.Log.w("ShipTime", "ADB 연결 실패 (5555)", t3)
-                        lastError = listOfNotNull("auto" to t, ("tls" to t2).takeIf { t2 !== t }, "5555" to t3)
-                            .joinToString(" / ") { (k, e) -> "$k: ${e.message ?: e.javaClass.simpleName}" }
-                        connected = false
-                        return false
-                    }
+                    // (5555 루프백은 1단계에서 이미 시도했다)
+                    android.util.Log.w("ShipTime", "ADB 연결 실패 (무선 디버깅)", t2)
+                    lastError = listOfNotNull("auto" to t, ("tls" to t2).takeIf { t2 !== t })
+                        .joinToString(" / ") { (k, e) -> "$k: ${e.message ?: e.javaClass.simpleName}" }
+                    connected = false
+                    return false
                 }
             }
-            connected = ok
             if (ok) {
-                needsPairing = false
-                lastError = null
-                onConnected(ctx)
+                markConnected(ctx, "무선 디버깅 ${mgr.hostAddress}")
             } else {
+                connected = false
                 lastError = "무선 디버깅에 연결할 수 없음 (켜져 있는지 확인)"
             }
             ok
@@ -276,6 +445,13 @@ object AdbPriv : Priv {
             ExecResult(null, lastError ?: "exec 실패")
         }
     }
+
+    private const val LOOPBACK = "127.0.0.1"
+    private const val TCP_PORT = 5555
+    private const val LOOPBACK_VIA = "$LOOPBACK:$TCP_PORT"
+
+    /** 연결 후 libadb 기본 타임아웃 (기본값 Long.MAX_VALUE 는 무한 대기가 될 수 있다) */
+    private const val IO_TIMEOUT_MS = 30_000L
 
     /** execUnlocked 가 명령 뒤에 붙이는 종료 코드 줄 (숫자 + 줄바꿈까지 와야 완결) */
     private val EXIT_LINE = Regex("__SHIP_EXIT__:-?\\d+\\s*\\n")

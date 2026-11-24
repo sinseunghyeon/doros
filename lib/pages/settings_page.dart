@@ -107,8 +107,11 @@ class _SettingsPageState extends State<SettingsPage> {
     Widget row(String k, String v, {Color? col}) => Padding(
           padding: const EdgeInsets.symmetric(vertical: 3),
           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            SizedBox(width: 120, child: Text(k, style: const TextStyle(color: Colors.white60))),
-            Expanded(child: Text(v, style: TextStyle(color: col, height: 1.35))),
+            SizedBox(
+                width: 120,
+                child: Text(k, style: const TextStyle(color: Colors.white60))),
+            Expanded(
+                child: Text(v, style: TextStyle(color: col, height: 1.35))),
           ]),
         );
 
@@ -119,13 +122,13 @@ class _SettingsPageState extends State<SettingsPage> {
       adb = 'Android 11 이상 필요';
       adbColor = AppColors.fail;
     } else if (s.adbConnected) {
-      adb = '연결됨';
+      adb = s.adbViaLoopback ? '연결됨 (Wi-Fi 없이도 동작)' : '연결됨 (무선 디버깅)';
       adbColor = AppColors.ok;
     } else if (s.adbNeedsPairing) {
       adb = '페어링 필요';
       adbColor = AppColors.warn;
     } else {
-      adb = '미연결';
+      adb = s.wifiConnected ? '미연결' : '미연결 (Wi-Fi 없음)';
       adbColor = AppColors.warn;
       adbDetail = _friendlyAdbError(s.adbError);
     }
@@ -148,13 +151,22 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
               child: Text(
                 adbDetail,
-                style: const TextStyle(color: AppColors.sub, fontSize: 13, height: 1.45),
+                style: const TextStyle(
+                    color: AppColors.sub, fontSize: 13, height: 1.45),
               ),
             ),
           ],
-          row('자동 복구', _autoRecoveryText(s), col: s.autoAdb && s.secureSettings ? AppColors.ok : null),
-          row('자동 시간대',
-              switch (s.autoTimeZone) { 1 => '켜짐 (적용 시 자동으로 끔)', 0 => '꺼짐', _ => '알 수 없음' }),
+          row('자동 복구', _autoRecoveryText(s),
+              col: s.autoAdb && s.secureSettings ? AppColors.ok : null),
+          if (s.pendingApply)
+            row('적용 대기', '연결되면 선박 시간대를 자동으로 적용합니다', col: AppColors.warn),
+          row(
+              '자동 시간대',
+              switch (s.autoTimeZone) {
+                1 => '켜짐 (적용 시 자동으로 끔)',
+                0 => '꺼짐',
+                _ => '알 수 없음'
+              }),
           row('Device Owner', s.deviceOwner ? '예' : '아니오'),
           row('기기', '${s.device} · Android ${s.release} (SDK ${s.sdk})'),
           const SizedBox(height: 8),
@@ -164,7 +176,8 @@ class _SettingsPageState extends State<SettingsPage> {
               child: Text(s.adbConnected ? '다시 연결' : 'ADB 연결'),
             ),
             FilledButton.tonal(
-              onPressed: c.busy || !s.adbSupported ? null : _startNotificationPairing,
+              onPressed:
+                  c.busy || !s.adbSupported ? null : _startNotificationPairing,
               child: const Text('페어링'),
             ),
             TextButton(
@@ -176,16 +189,18 @@ class _SettingsPageState extends State<SettingsPage> {
                 onPressed: c.busy
                     ? null
                     : () => c.runRaw(() async {
-                        await Native.adbDisconnect();
-                      }),
+                          await Native.adbDisconnect();
+                        }),
                 child: const Text('연결 해제'),
               ),
-            const TextButton(onPressed: Native.openWirelessDebugging, child: Text('무선 디버깅 설정')),
+            const TextButton(
+                onPressed: Native.openWirelessDebugging,
+                child: Text('무선 디버깅 설정')),
           ]),
-          const ExpansionTile(
+          ExpansionTile(
             tilePadding: EdgeInsets.zero,
-            title: Text('설정 방법 (루트 불필요)'),
-            childrenPadding: EdgeInsets.only(bottom: 8),
+            title: const Text('설정 방법 (루트 불필요)'),
+            childrenPadding: const EdgeInsets.only(bottom: 8),
             children: [
               Text(
                 '1. 설정 > 휴대전화 정보 > 소프트웨어 정보 > 빌드번호 7번 탭 → 개발자 옵션\n'
@@ -195,12 +210,17 @@ class _SettingsPageState extends State<SettingsPage> {
                 '4. 알림을 내려 "코드 입력"에 6자리 코드 입력 — 앱으로 돌아올 필요 없음\n'
                 '5. 연결되면 ±1h·±30m / 위젯으로 시스템 시간대가 바뀝니다\n\n'
                 '※ 페어링 후에는 재부팅해도 같은 Wi-Fi 에서 앱이 무선 디버깅을 자동으로 켜고 다시 연결합니다.\n'
-                '※ 무선 디버깅은 Wi-Fi 에 연결돼 있어야 켜집니다. 다른 Wi-Fi 에서는 2번(항상 허용)을 한 번 더 하세요.\n'
+                '※ 무선 디버깅은 Wi-Fi 에 연결돼 있어야 켜집니다. "항상 허용"은 공유기(AP)마다 따로 저장되므로, '
+                '선내처럼 AP 가 여러 대면 처음 붙는 AP 에서 뜨는 확인 창에서 "항상 허용"을 한 번씩 눌러 주세요.\n'
+                '※ "Wi-Fi 없이도 동작"을 켜 두면 한 번 연결된 뒤로는 Wi-Fi 가 끊기거나 로밍·eSIM 으로 바뀌어도 동작합니다. '
+                '재부팅 후에는 Wi-Fi 에서 한 번 다시 연결돼야 합니다.\n'
+                '※ 연결이 없을 때 바꾼 시간은 "적용 대기"로 저장했다가, 다시 연결되면 자동으로 적용합니다.\n'
                 '※ 구글 계정이 있어도 동작합니다 (Device Owner/루트 불필요).\n'
                 '※ 무선 디버깅이 꺼져 있어도 위젯은 "표시 전용"으로 동작합니다.\n'
                 '※ 30분 단위 시간대는 UTC−9:30, +3:30, +4:30, +5:30, +6:30, +9:30만 기기 시간대까지 바뀝니다. '
-                '나머지(예: UTC+1:30)는 표시만 합니다.',
-                style: TextStyle(height: 1.5),
+                '나머지(예: UTC+1:30)는 표시만 합니다.'
+                '${s.sentryEnabled ? '\n※ 실패 기록은 개발자에게 전달됩니다.' : ''}',
+                style: const TextStyle(height: 1.5),
               ),
             ],
           ),
@@ -219,7 +239,8 @@ class _SettingsPageState extends State<SettingsPage> {
         max: 100,
         divisions: 20,
         label: '$v%',
-        onChanged: c.busy ? null : (x) => setState(() => _opacityDrag = x.round()),
+        onChanged:
+            c.busy ? null : (x) => setState(() => _opacityDrag = x.round()),
         // 드래그 중 busy 가 켜져도 손을 떼면 항상 드래그 상태를 해제한다
         // (busy 이면 run 이 저장을 건너뛰고, 슬라이더는 저장된 값으로 돌아간다)
         onChangeEnd: (x) async {
@@ -243,15 +264,28 @@ class _SettingsPageState extends State<SettingsPage> {
             onTap: Native.openDateSettings,
           ),
           SwitchListTile(
+            title: const Text('Wi-Fi 없이도 동작 (실험)'),
+            subtitle: const Text('연결될 때 USB 디버깅을 켜고 ADB를 5555 포트로도 열어 둡니다. '
+                'Wi-Fi 가 끊기거나 로밍·eSIM 으로 바뀌어도 시간대를 바꿀 수 있습니다. '
+                '5555 대기는 재부팅하면 풀리고(다시 Wi-Fi 에서 한 번 연결 필요), USB 디버깅은 이 스위치를 끌 때까지 켜져 있습니다.\n'
+                '⚠ 5555 포트는 모든 네트워크에 열립니다. 처음 보는 기기가 접속하면 허용 창이 뜨니 모르는 요청은 거부하세요. '
+                '이미 "항상 허용"한 PC 는 창 없이 접속할 수 있습니다.'),
+            value: s.adbNoWifi,
+            onChanged: c.busy ? null : (v) => c.setAdbNoWifi(v),
+          ),
+          SwitchListTile(
             title: const Text('무선 디버깅 자동 켜기'),
-            subtitle: const Text('재부팅 후나 꺼져 있을 때 앱이 직접 켜고 다시 연결합니다 (신뢰한 Wi-Fi 에서만)'),
+            subtitle:
+                const Text('재부팅 후나 꺼져 있을 때 앱이 직접 켜고 다시 연결합니다 (신뢰한 Wi-Fi 에서만)'),
             value: s.autoAdb,
             onChanged: c.busy ? null : (v) => c.setAutoAdb(v),
           ),
           SwitchListTile(
             title: const Text('루트(su) 사용'),
             subtitle: Text(s.useRoot
-                ? (s.rootVerified == true ? '루트 권한으로도 시도합니다' : '루트 확인 실패 — 루팅된 기기 전용')
+                ? (s.rootVerified == true
+                    ? '루트 권한으로도 시도합니다'
+                    : '루트 확인 실패 — 루팅된 기기 전용')
                 : 'ADB가 안 될 때 대체 수단 (루팅 기기 전용)'),
             value: s.useRoot,
             onChanged: c.busy ? null : (v) => c.setUseRoot(v),
@@ -378,7 +412,8 @@ class _PairDialogState extends State<_PairDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
+        TextButton(
+            onPressed: () => Navigator.pop(context), child: const Text('취소')),
         FilledButton(onPressed: _submit, child: const Text('페어링')),
       ],
     );

@@ -23,6 +23,10 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AdbPriv.init(applicationContext)
+        if (WirelessAdb.autoAllowed(applicationContext)) {
+            WirelessAdb.watchWifi(applicationContext)
+            AdbKeepAliveJob.schedule(applicationContext)
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -80,6 +84,7 @@ class MainActivity : FlutterActivity() {
                 "adbConnect" -> background(result) {
                     AdbPriv.init(ctx)
                     val ok = AdbPriv.connect(10_000)
+                    if (ok) afterConnected(ctx)
                     state(ctx) + mapOf("adbConnectOk" to ok, "adbError" to AdbPriv.lastError)
                 }
                 "adbDisconnect" -> background(result) {
@@ -95,6 +100,7 @@ class MainActivity : FlutterActivity() {
                     val port = call.argument<Int>("port") ?: 0
                     val code = call.argument<String>("code") ?: ""
                     val ok = AdbPriv.pair(port, code)
+                    if (ok) afterConnected(ctx)
                     state(ctx) + mapOf("adbPairOk" to ok, "adbError" to AdbPriv.lastError)
                 }
                 "openDateSettings" -> {
@@ -114,6 +120,18 @@ class MainActivity : FlutterActivity() {
                     WirelessAdb.openSettings(this)
                     result.success(true)
                 }
+                "setAdbNoWifi" -> background(result) {
+                    val v = call.argument<Boolean>("value") ?: true
+                    p.adbNoWifi = v
+                    AdbPriv.init(ctx)
+                    val note = if (v) {
+                        if (AdbPriv.connected) AdbPriv.ensureTcpMode(10_000) else null
+                    } else {
+                        AdbPriv.disableTcpMode(10_000)
+                    }
+                    note?.let { p.appendLog(listOf("Wi-Fi 없이도 동작 ${if (v) "켬" else "끔"}: $it")) }
+                    state(ctx)
+                }
                 "setAutoAdb" -> background(result) {
                     p.autoAdb = call.argument<Boolean>("value") ?: true
                     state(ctx)
@@ -121,6 +139,13 @@ class MainActivity : FlutterActivity() {
                 "getLog" -> result.success(p.log)
                 "clearLog" -> {
                     p.clearLog()
+                    result.success(true)
+                }
+                "reportError" -> {
+                    val message = call.argument<String>("message") ?: "flutter"
+                    val stack = call.argument<String>("stack")
+                    val text = if (stack.isNullOrBlank()) message else "$message\n$stack"
+                    ErrorReport.failure(text)
                     result.success(true)
                 }
                 else -> result.notImplemented()
@@ -177,6 +202,10 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun afterConnected(ctx: Context) {
+        Prefs(ctx).appendLog(WirelessAdb.onAdbReady(ctx))
+    }
+
     private fun state(ctx: Context): Map<String, Any?> {
         AdbPriv.init(ctx)
         val p = Prefs(ctx)
@@ -211,11 +240,17 @@ class MainActivity : FlutterActivity() {
             "adbConnected" to AdbPriv.connected,
             "adbNeedsPairing" to AdbPriv.needsPairing,
             "adbError" to AdbPriv.lastError,
+            "adbVia" to AdbPriv.via.takeIf { AdbPriv.connected },
+            "adbViaLoopback" to AdbPriv.viaLoopback,
+            "adbNoWifi" to p.adbNoWifi,
+            "pendingApply" to p.pendingApply,
+            "wifiConnected" to WirelessAdb.wifiConnected(ctx),
             "deviceOwner" to dpm.isDeviceOwnerApp(ctx.packageName),
             "autoAdb" to p.autoAdb,
             "secureSettings" to WirelessAdb.hasSecureSettings(ctx),
             "adbEverConnected" to p.adbEverConnected,
             "adbWifiEnabled" to WirelessAdb.isEnabled(ctx),
+            "sentryEnabled" to (!BuildConfig.DEBUG && BuildConfig.SENTRY_DSN.isNotEmpty()),
             "sdk" to Build.VERSION.SDK_INT,
             "release" to Build.VERSION.RELEASE,
             "device" to "${Build.MANUFACTURER} ${Build.MODEL}",

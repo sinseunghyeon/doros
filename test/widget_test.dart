@@ -16,6 +16,7 @@ void main() {
       expect(s.autoTimeZone, -1);
       expect(s.statusState, ShipState.stateNone);
       expect(s.adbConnected, isFalse);
+      expect(s.sentryEnabled, isFalse);
       expect(s.lastOk, isNull);
     });
 
@@ -40,10 +41,47 @@ void main() {
     });
 
     test('systemMatches 는 분 단위 시스템 오프셋과 비교', () {
-      expect(ShipState({'offsetMinutes': 540, 'systemOffsetMinutes': 540}).systemMatches, isTrue);
-      expect(ShipState({'offsetMinutes': -180, 'systemOffsetMinutes': -180}).systemMatches, isTrue);
-      expect(ShipState({'offsetMinutes': 540, 'systemOffsetMinutes': 570}).systemMatches, isFalse);
-      expect(ShipState({'offsetMinutes': 570, 'systemOffsetMinutes': 570}).systemMatches, isTrue);
+      expect(
+          ShipState({'offsetMinutes': 540, 'systemOffsetMinutes': 540})
+              .systemMatches,
+          isTrue);
+      expect(
+          ShipState({'offsetMinutes': -180, 'systemOffsetMinutes': -180})
+              .systemMatches,
+          isTrue);
+      expect(
+          ShipState({'offsetMinutes': 540, 'systemOffsetMinutes': 570})
+              .systemMatches,
+          isFalse);
+      expect(
+          ShipState({'offsetMinutes': 570, 'systemOffsetMinutes': 570})
+              .systemMatches,
+          isTrue);
+    });
+
+    test('Wi-Fi 없이도 동작 · 적용 대기 파싱', () {
+      final empty = ShipState({});
+      expect(empty.adbVia, isNull);
+      expect(empty.adbViaLoopback, isFalse);
+      expect(empty.adbNoWifi, isTrue);
+      expect(empty.pendingApply, isFalse);
+      expect(empty.wifiConnected, isFalse);
+
+      final s = ShipState({
+        'adbConnected': true,
+        'adbVia': '127.0.0.1:5555',
+        'adbViaLoopback': true,
+        'adbNoWifi': false,
+        'pendingApply': true,
+        'wifiConnected': true,
+        'statusState': ShipState.stateWaiting,
+      });
+      expect(s.adbVia, '127.0.0.1:5555');
+      expect(s.adbViaLoopback, isTrue);
+      expect(s.adbNoWifi, isFalse);
+      expect(s.pendingApply, isTrue);
+      expect(s.wifiConnected, isTrue);
+      expect(s.statusState, 4);
     });
 
     test('30분 오프셋 · 디데이 · 위젯 불투명도 파싱', () {

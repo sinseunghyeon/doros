@@ -180,6 +180,9 @@ class _HomePageState extends State<HomePage> {
     } else if (!s.systemSupported) {
       text = '${s.label}에 해당하는 시스템 시간대가 없어 표시만 합니다 — 기기 시계는 바뀌지 않습니다';
       color = AppColors.warn;
+    } else if (s.statusState == ShipState.stateWaiting && !s.systemMatches) {
+      text = s.statusText.isEmpty ? '적용 대기 — 연결되면 자동으로 적용합니다' : s.statusText;
+      color = AppColors.warn;
     } else if (s.statusState == ShipState.stateFail) {
       text = s.statusText.isEmpty ? '적용 실패' : s.statusText;
       color = AppColors.fail;

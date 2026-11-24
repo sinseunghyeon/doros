@@ -117,11 +117,12 @@ class PairingService : Service() {
                 AdbPriv.pair(p, code)
             } catch (t: Throwable) {
                 Log.w(TAG, "페어링 예외", t)
+                ErrorReport.failure("페어링 예외", t)
                 false
             }
             Log.i(TAG, "페어링 결과: ok=$ok err=${AdbPriv.lastError}")
             if (ok) {
-                Prefs(app).appendLog(listOf("✓ 알림으로 페어링·연결 완료 (포트 $p)"))
+                Prefs(app).appendLog(listOf("✓ 알림으로 페어링·연결 완료 (포트 $p)") + WirelessAdb.onAdbReady(app))
                 WidgetUpdater.updateAll(app)
                 notify(done("페어링 완료", "이제 위젯 버튼으로 시스템 시간대가 바뀝니다."))
                 stopForegroundKeep()

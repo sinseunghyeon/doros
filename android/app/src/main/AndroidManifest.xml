@@ -88,10 +88,15 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+        <!-- 하루 두 번 ADB 접속 (7일 미접속 시 시스템이 페어링 키를 지우는 것 방지) -->
         <service
-            android:name=".AdbReconnectJob"
+            android:name=".AdbKeepAliveJob"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
+        <!-- Wi-Fi 연결 이벤트 (ConnectivityManager.registerNetworkCallback PendingIntent) -->
+        <receiver
+            android:name=".WifiAvailableReceiver"
+            android:exported="false" />
 
         <!-- (선택) Device Owner 로 등록된 경우 DevicePolicyManager.setTimeZone 사용 -->
         <receiver
@@ -109,5 +114,13 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- DSN 은 local.properties. 비어 있으면 auto-init=false 라 전송하지 않는다. -->
+        <meta-data android:name="io.sentry.dsn" android:value="${sentryDsn}" />
+        <meta-data android:name="io.sentry.auto-init" android:value="${sentryAutoInit}" />
+        <meta-data android:name="io.sentry.environment" android:value="release" />
+        <meta-data android:name="io.sentry.send-default-pii" android:value="false" />
+        <meta-data android:name="io.sentry.attach-screenshot" android:value="false" />
+        <meta-data android:name="io.sentry.attach-view-hierarchy" android:value="false" />
     </application>
 </manifest>
