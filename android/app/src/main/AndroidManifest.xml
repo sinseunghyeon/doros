@@ -23,7 +23,7 @@
         tools:ignore="ProtectedPermissions" />
 
     <application
-        android:label="Helm"
+        android:label="도로스"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 

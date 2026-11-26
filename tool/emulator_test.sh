@@ -30,7 +30,7 @@ set -uo pipefail
 APIS=("$@")
 [ ${#APIS[@]} -eq 0 ] && APIS=(33 35)
 
-PKG=com.edencrew.shiptime
+PKG=com.sinseunghyeon.doros
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/build/emulator-test"
 APK="$ROOT/build/app/outputs/flutter-apk/app-debug.apk"
@@ -166,7 +166,7 @@ if [ "${SKIP_BUILD:-0}" != 1 ]; then
   (
     cd "$ROOT" || exit 1
     if [ ! -f android/gradlew ] || [ ! -f android/local.properties ]; then
-      flutter create --platforms=android --org com.edencrew . >/dev/null || exit 1
+      flutter create --platforms=android --org com.sinseunghyeon . >/dev/null || exit 1
     fi
     flutter pub get >/dev/null && flutter build apk --debug
   ) || die "빌드 실패"

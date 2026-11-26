@@ -1,6 +1,6 @@
 # Ship Time — 선박 시간 위젯
 
-> 기기에 설치되는 앱 이름은 **Helm**입니다. (패키지 `com.edencrew.shiptime`)
+> 기기에 설치되는 앱 이름은 **도로스**입니다. (패키지 `com.sinseunghyeon.doros`)
 
 홈 화면 위젯의 **[−1h] [−30m] [+30m] [+1h]** 버튼 한 번으로 선박 시간을 조정합니다.
 **무선 디버깅(ADB)**이 연결되어 있으면 **기기 시스템 시간대도 같이** 바꿉니다.
@@ -35,7 +35,7 @@ lib/
   native.dart           MethodChannel 래퍼 (shiptime/native) + ShipState
   pages/                home_page(시계·±1h/±30m·디데이) / settings_page(ADB 연결·페어링·위젯 투명도) / log_page(진단 로그)
   cat.dart, ui.dart, app_colors.dart   마스코트·포맷 유틸·색상
-android/app/src/main/kotlin/com/edencrew/shiptime/
+android/app/src/main/kotlin/com/sinseunghyeon/doros/
   Core.kt                Zones(분 단위 오프셋↔zoneId), Dday, Prefs, Hidden(숨김 API), SysTz
   ErrorReport.kt         진단 로그·예외를 Sentry로 전송 (DSN 없으면 꺼짐)
   Priv.kt                Priv 인터페이스 / RootPriv (선택 폴백)
@@ -120,7 +120,7 @@ release 빌드에 Sentry DSN이 있으면 그 로그는 개발자에게도 전�
 ### (선택) Device Owner — 공장초기화된 기기 / 계정이 없는 기기 전용
 
 ```bash
-adb shell dpm set-device-owner com.edencrew.shiptime/.ShipAdminReceiver
+adb shell dpm set-device-owner com.sinseunghyeon.doros/.ShipAdminReceiver
 ```
 
 구글 계정이 있으면 등록할 수 없습니다. 이 앱의 기본 경로는 **무선 디버깅**입니다.
@@ -128,8 +128,8 @@ adb shell dpm set-device-owner com.edencrew.shiptime/.ShipAdminReceiver
 ## 빌드
 
 ```bash
-cd ship_time
-flutter create --platforms=android --org com.edencrew .   # 빠진 파일만 생성
+cd doros   # 로컬 폴더 이름은 아직 ship_time 일 수 있음
+flutter create --platforms=android --org com.sinseunghyeon .   # 빠진 파일만 생성
 flutter pub get
 flutter build apk --release
 # → build/app/outputs/flutter-apk/app-release.apk
@@ -144,7 +144,7 @@ flutter build ios --debug --no-codesign      # 기기용 빌드 확인
 flutter run -d "iPhone 15 Pro"               # 시뮬레이터 실행
 ```
 
-- 번들 ID `com.edencrew.shiptime`, 앱 이름 Helm, 최소 iOS 15.0.
+- 번들 ID `com.sinseunghyeon.doros`, 앱 이름 도로스, 최소 iOS 15.0.
 - `flutter build ios --simulator`는 Flutter 3.38 + Xcode 27 조합에서 실패합니다. 시뮬레이터는 `flutter run`을 쓰세요.
 - iOS 네이티브 구현이 아직 없어 앱이 로딩 화면에서 멈춥니다.
 - `libadb-android`는 JitPack에서 받습니다 (`android/build.gradle.kts`에 jitpack 저장소).
@@ -180,8 +180,8 @@ API 30 에뮬레이터는 adbd가 TCP 포트를 열지 않아 자동 연결이 �
 
 ```bash
 # debug 훅: 위젯 버튼과 같은 경로로 실행하고 결과를 logcat 한 줄(RESULT ...)로 남김
-CMD() { adb shell am broadcast -f 268435488 -n com.edencrew.shiptime/.DebugCommandReceiver \
-          -a com.edencrew.shiptime.debug.CMD --es id 1 "$@"; }
+CMD() { adb shell am broadcast -f 268435488 -n com.sinseunghyeon.doros/.DebugCommandReceiver \
+          -a com.sinseunghyeon.doros.debug.CMD --es id 1 "$@"; }
 CMD --es cmd plus                         # +1h  (minus, plus30, minus30, reapply, state, sync_on, sync_off)
 CMD --es cmd set --ei offset 9            # UTC+9 지정
 CMD --es cmd set --ei offset_min 330      # UTC+5:30 지정 (분 단위)
