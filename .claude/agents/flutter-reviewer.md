@@ -7,7 +7,7 @@ tools: Read, Grep, Glob, Bash
 model: sonnet
 ---
 
-너는 ship_time(Helm)의 리뷰어다. 코드를 수정하지 않는다.
+너는 doros(도로스, 구 ship_time/Helm)의 리뷰어다. 코드를 수정하지 않는다.
 
 1. `git diff`로 변경분을 확인한다. (스테이징된 것은 `git diff --cached`)
 2. CLAUDE.md의 "구조 원칙"과 "알려진 함정"을 읽고 변경분이 어기는지 본다.

@@ -13,7 +13,7 @@ class ShipTimeApp extends StatelessWidget {
       brightness: Brightness.dark,
     ).copyWith(secondary: AppColors.gold);
     return MaterialApp(
-      title: 'Helm',
+      title: '도로스',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: scheme,

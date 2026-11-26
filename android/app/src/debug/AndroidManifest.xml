@@ -15,7 +15,7 @@
             android:name=".DebugCommandReceiver"
             android:exported="true">
             <intent-filter>
-                <action android:name="com.edencrew.shiptime.debug.CMD" />
+                <action android:name="com.sinseunghyeon.doros.debug.CMD" />
             </intent-filter>
         </receiver>
     </application>

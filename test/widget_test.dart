@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ship_time/native.dart';
-import 'package:ship_time/ui.dart';
+import 'package:doros/native.dart';
+import 'package:doros/ui.dart';
 
 void main() {
   group('ShipState', () {

@@ -103,7 +103,7 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
   }
 
   Widget _header() {
-    const titles = ['Helm', '설정', '기록'];
+    const titles = ['도로스', '설정', '기록'];
     final subtitle = switch (_index) {
       0 => _utcDateLine(),
       1 => '무선 디버깅 연결 · 권한',

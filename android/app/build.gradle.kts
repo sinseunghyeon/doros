@@ -8,7 +8,7 @@ plugins {
 }
 
 android {
-    namespace = "com.edencrew.shiptime"
+    namespace = "com.sinseunghyeon.doros"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -22,7 +22,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.edencrew.shiptime"
+        applicationId = "com.sinseunghyeon.doros"
         // 무선 디버깅 ADB 페어링은 Android 11+(런타임 체크). 표시 전용은 그 이하도 가능.
         minSdk = 24
         targetSdk = flutter.targetSdkVersion

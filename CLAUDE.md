@@ -1,9 +1,9 @@
-# ship_time (앱 이름: Helm)
+# doros (앱 이름: 도로스, 구 ship_time/Helm)
 선박 시간 위젯 Android 앱. 위젯 ±1h로 시스템 시간대를 `Etc/GMT±N`으로 바꾼다 (무선 디버깅 ADB 경유).
 구조·동작 설명은 README.md가 기준이다.
 
 ## 구조 원칙
-- 핵심 로직은 Kotlin(`android/app/src/main/kotlin/com/edencrew/shiptime/`)에 있다. 위젯은 앱이 꺼져 있어도 동작해야 하기 때문.
+- 핵심 로직은 Kotlin(`android/app/src/main/kotlin/com/sinseunghyeon/doros/`)에 있다. 위젯은 앱이 꺼져 있어도 동작해야 하기 때문.
 - Flutter(`lib/`)는 UI만 담당하고 MethodChannel `shiptime/native`로 Kotlin을 호출한다. 로직을 Dart로 옮기지 않는다.
 
 ## 검증 명령
